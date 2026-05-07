@@ -1,0 +1,1921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Light Dispersion Simulator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #111;
+    color: #ddd;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  #sidebar {
+    width: 288px;
+    min-width: 288px;
+    background: #1a1a1a;
+    border-right: 1px solid #2a2a2a;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  #sidebar h1 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: #888;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid #2a2a2a;
+    flex-shrink: 0;
+  }
+
+  .section {
+    border-bottom: 1px solid #2a2a2a;
+    padding: 12px 16px;
+    flex-shrink: 0;
+  }
+
+  .section h2 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #666;
+    margin-bottom: 10px;
+  }
+  .section h2 em {
+    font-style: normal;
+    color: #f5a623;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #bbb;
+    margin-bottom: 6px;
+  }
+  label span { color: #888; font-size: 11px; }
+  label > input[type="number"],
+  label > select { margin-left: auto; }
+
+  input[type="number"], select {
+    background: #252525;
+    border: 1px solid #333;
+    color: #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 3px 6px;
+  }
+  input[type="number"] { width: 72px; text-align: right; }
+
+  button {
+    display: block;
+    width: 100%;
+    padding: 7px;
+    margin-top: 6px;
+    border: none;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: .85; }
+  button:disabled { opacity: .35; cursor: default; }
+
+  .btn-primary   { background: #f5a623; color: #111; }
+  .btn-success   { background: #27ae60; color: #fff; }
+  .btn-danger    { background: #c0392b; color: #fff; }
+  .btn-secondary { background: #2e2e2e; color: #bbb; border: 1px solid #3a3a3a; }
+
+  .item-list { list-style: none; margin-bottom: 4px; }
+  .item-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid #252525;
+    cursor: pointer;
+    color: #bbb;
+    gap: 4px;
+  }
+  .item-list li .info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item-list li.selected { color: #f5a623; }
+  .item-list li .rm {
+    background: none; border: none; color: #555;
+    cursor: pointer; font-size: 14px; width: auto; padding: 0 4px; margin: 0; flex-shrink: 0;
+  }
+  .item-list li .rm:hover { color: #c0392b; }
+
+  .open-area-toggle {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: #bbb; margin-bottom: 8px; cursor: pointer;
+  }
+  input[type="checkbox"] { accent-color: #f5a623; width: 14px; height: 14px; }
+
+  .hidden { display: none !important; }
+
+  .pin-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #e74c3c; color: #fff; font-size: 10px; font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+  #toolbar {
+    background: #161616;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 8px 14px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 12px; color: #666;
+    flex-wrap: wrap;
+  }
+  #toolbar .tool-btn {
+    background: #252525; border: 1px solid #333; color: #bbb;
+    padding: 4px 12px; border-radius: 4px; cursor: pointer;
+    font-size: 12px; width: auto; margin: 0;
+  }
+  #toolbar .tool-btn.active { background: #f5a623; color: #111; border-color: #f5a623; }
+  #toolbar .tool-btn:disabled { opacity: .35; cursor: default; }
+  .toolbar-sep { width: 1px; height: 20px; background: #2a2a2a; }
+
+  #canvas-wrap {
+    flex: 1; overflow: hidden; position: relative;
+    cursor: crosshair; background: #0d0d0d;
+  }
+  #canvas-wrap.move-mode  { cursor: grab; }
+  #canvas-wrap.move-mode:active { cursor: grabbing; }
+  #canvas-wrap.pin-mode   { cursor: cell; }
+
+  canvas { display: block; }
+
+  #legend {
+    position: absolute; bottom: 16px; right: 16px;
+    background: rgba(0,0,0,.75); border: 1px solid #333;
+    border-radius: 6px; padding: 10px 14px;
+    font-size: 11px; color: #bbb; pointer-events: none;
+  }
+  #legend h3 { font-size: 11px; color: #888; margin-bottom: 6px; text-align: center; }
+  #legend-bar { width: 160px; height: 14px; border-radius: 3px; margin-bottom: 4px; }
+  .legend-labels { display: flex; justify-content: space-between; font-size: 10px; }
+
+
+  #lux-cursor {
+    position: absolute; top: 10px; right: 200px;
+    background: rgba(0,0,0,.7); border: 1px solid #444;
+    border-radius: 5px; padding: 5px 10px;
+    font-size: 12px; color: #f5a623; pointer-events: none;
+    display: none;
+  }
+
+  #stats-panel {
+    position: absolute; bottom: 16px; left: 16px;
+    background: rgba(0,0,0,.75); border: 1px solid #333;
+    border-radius: 6px; padding: 10px 14px;
+    font-size: 11px; color: #bbb; pointer-events: none;
+    display: none;
+  }
+  #stats-panel h3 { font-size: 11px; color: #888; margin-bottom: 6px; }
+  #stats-panel .stat-row { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 3px; }
+  #stats-panel .stat-val { color: #f5a623; font-weight: 600; }
+  #stats-panel .stat-ok  { color: #27ae60; font-weight: 600; }
+  #stats-panel .stat-bad { color: #e74c3c; font-weight: 600; }
+
+  #ruler-readout {
+    position: absolute; top: 10px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,.75); border: 1px solid #555;
+    border-radius: 5px; padding: 4px 12px;
+    font-size: 12px; color: #fff; pointer-events: none;
+    display: none;
+  }
+
+  .section input[type="range"] {
+    width: 100%; accent-color: #f5a623; margin-top: 2px;
+  }
+  .toggle-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: #bbb; margin-bottom: 6px;
+  }
+  .toggle-row input[type="checkbox"] { accent-color: #f5a623; }
+
+  #array-panel {
+    background: #1e1e1e; border: 1px solid #333; border-radius: 5px;
+    padding: 10px; margin-top: 8px; display: none;
+  }
+  #array-panel label { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>Light Simulator</h1>
+
+  <div class="section">
+    <h2>Room / Area</h2>
+    <label class="open-area-toggle">
+      <input type="checkbox" id="openArea"> Open area (no walls)
+    </label>
+    <div id="room-dims">
+      <label>Width  <input type="number" id="roomW" value="10" min="1" max="500" step="0.5"> <span>m</span></label>
+      <label>Depth  <input type="number" id="roomD" value="8"  min="1" max="500" step="0.5"> <span>m</span></label>
+    </div>
+    <div id="open-dims" class="hidden">
+      <label>Area Width <input type="number" id="areaW" value="30" min="5" max="1000" step="1"> <span>m</span></label>
+      <label>Area Depth <input type="number" id="areaD" value="30" min="5" max="1000" step="1"> <span>m</span></label>
+    </div>
+    <label>Work-plane ht. <input type="number" id="workPlane" value="0.85" min="0" max="5" step="0.05"> <span>m</span></label>
+    <label id="room-h-label">Room height <input type="number" id="roomH" value="3.0" min="1.5" max="20" step="0.1"> <span>m</span></label>
+    <div style="margin-top:6px;">
+      <label style="display:block;font-size:11px;color:#555;margin-bottom:3px;">Floor plan image</label>
+      <input type="file" id="bgImageFile" accept="image/*"
+        style="font-size:11px;color:#888;width:100%;background:none;border:none;padding:0;cursor:pointer;">
+      <div style="display:flex;gap:4px;margin-top:4px;align-items:center;">
+        <label style="font-size:11px;color:#666;margin:0;flex:1;">Opacity
+          <input type="range" id="bgOpacity" min="5" max="80" value="30" style="flex:1;margin:0;">
+        </label>
+        <button id="btn-clear-bg" class="btn-secondary" style="width:auto;padding:2px 8px;font-size:10px;margin:0;">✕</button>
+      </div>
+      <label style="margin-top:4px;">Scale <input type="number" id="bgScale" value="100" min="10" max="400" step="5"> <span>%</span></label>
+      <label>Offset X <input type="number" id="bgOffX" value="0" min="-200" max="200" step="0.1"> <span>m</span></label>
+      <label>Offset Y <input type="number" id="bgOffY" value="0" min="-200" max="200" step="0.1"> <span>m</span></label>
+    </div>
+  </div>
+
+  <div class="section" id="reflectance-section">
+    <h2>Surface Reflectances</h2>
+    <div style="display:flex;gap:4px;margin-bottom:8px;">
+      <button class="btn-secondary" style="flex:1;margin:0;font-size:10px;"
+        onclick="applyReflPreset(0.8,0.5,0.2)">Office</button>
+      <button class="btn-secondary" style="flex:1;margin:0;font-size:10px;"
+        onclick="applyReflPreset(0.9,0.8,0.7)">White Studio</button>
+      <button class="btn-secondary" style="flex:1;margin:0;font-size:10px;"
+        onclick="applyReflPreset(0.1,0.1,0.05)">Dark Room</button>
+    </div>
+    <label>Ceiling refl. <input type="number" id="reflCeil"  value="0.8" min="0" max="0.99" step="0.05"> <span>ρ</span></label>
+    <label>Walls refl.   <input type="number" id="reflWalls" value="0.5" min="0" max="0.99" step="0.05"> <span>ρ</span></label>
+    <label>Floor refl.   <input type="number" id="reflFloor" value="0.2" min="0" max="0.99" step="0.05"> <span>ρ</span></label>
+    <label>Bounces <input type="number" id="reflBounces" value="3" min="1" max="8" step="1"> <span>passes</span></label>
+  </div>
+
+  <div class="section">
+    <h2 id="spec-title">Light Spec <em id="spec-editing"></em></h2>
+
+    <label style="font-size:11px;color:#555;">
+      Source shape
+      <select id="shape">
+        <option value="point">Point (bulb / spot / downlight)</option>
+        <option value="linear">Linear (strip / batten)</option>
+      </select>
+    </label>
+    <div id="linear-opts" class="hidden">
+      <label>Length   <input type="number" id="lightLength"   value="1.2" min="0.1" max="50" step="0.1"> <span>m</span></label>
+      <label>Rotation <input type="number" id="lightRotation" value="0"   min="0"   max="359" step="5">  <span>°</span></label>
+    </div>
+    <div style="height:6px"></div>
+
+    <label>Lumens      <input type="number" id="lumens"    value="3000" min="100"  max="100000" step="100"> <span>lm</span></label>
+    <label>Beam angle  <input type="number" id="beamAngle" value="120"  min="5"    max="360"    step="5">   <span>°</span></label>
+    <label>Mount height<input type="number" id="mountH"    value="3.0"  min="0.5"  max="30"     step="0.1"> <span>m</span></label>
+    <label>Color temp  <input type="number" id="cct"       value="4000" min="1800" max="8000"   step="100"> <span>K</span></label>
+    <label>LLF         <input type="number" id="llf"       value="0.8"  min="0.1"  max="1.0"    step="0.05"><span>LLF</span></label>
+    <label style="font-size:11px;color:#555;margin-top:2px;">
+      Distribution
+      <select id="distrib">
+        <option value="lambertian">Lambertian (general diffuse)</option>
+        <option value="batwing">Batwing (recessed panel)</option>
+        <option value="spot">Spot / narrow beam</option>
+      </select>
+    </label>
+    <div style="height:4px"></div>
+    <label>Tilt angle <input type="number" id="aimTilt" value="0" min="0" max="89" step="1"> <span>°</span></label>
+    <label id="aim-az-row">Rotation <input type="number" id="aimAz" value="0" min="0" max="359" step="5"> <span>°</span></label>
+  </div>
+
+  <div class="section">
+    <h2>Lights in scene</h2>
+    <ul id="light-list" class="item-list"></ul>
+    <button class="btn-secondary" id="btn-add-mode">+ Place light (click canvas)</button>
+    <button class="btn-secondary" id="btn-array-toggle" style="margin-top:4px;">⊞ Place array…</button>
+    <div id="array-panel">
+      <label>Rows    <input type="number" id="arrRows" value="2" min="1" max="20" step="1"> <span></span></label>
+      <label>Cols    <input type="number" id="arrCols" value="3" min="1" max="20" step="1"> <span></span></label>
+      <label>Spacing X <input type="number" id="arrSpX" value="2.5" min="0.1" max="50" step="0.1"> <span>m</span></label>
+      <label>Spacing Y <input type="number" id="arrSpY" value="2.5" min="0.1" max="50" step="0.1"> <span>m</span></label>
+      <button class="btn-primary" id="btn-array-place" style="margin-top:4px;">Click canvas to place centre</button>
+    </div>
+    <button class="btn-danger" id="btn-clear-lights" style="margin-top:4px;">Remove all lights</button>
+  </div>
+
+  <div class="section">
+    <h2>Measurement pins</h2>
+    <ul id="pin-list" class="item-list"></ul>
+    <button class="btn-secondary" id="btn-pin-mode" disabled>+ Place pin (after simulate)</button>
+    <button class="btn-danger" id="btn-clear-pins" style="margin-top:4px;">Remove all pins</button>
+  </div>
+
+  <div class="section">
+    <button class="btn-primary"   id="btn-simulate">▶ Simulate</button>
+
+    <label style="margin-top:10px;">
+      Lux scale
+      <select id="luxScale">
+        <option value="auto">Auto (relative to max)</option>
+        <option value="50">0 – 50 lux &nbsp;(dim / storage)</option>
+        <option value="100">0 – 100 lux &nbsp;(corridors)</option>
+        <option value="200">0 – 200 lux &nbsp;(lobbies)</option>
+        <option value="300">0 – 300 lux &nbsp;(retail / casual)</option>
+        <option value="500" selected>0 – 500 lux &nbsp;(office / EN 12464)</option>
+        <option value="750">0 – 750 lux &nbsp;(detailed tasks)</option>
+        <option value="1000">0 – 1000 lux &nbsp;(demanding / sport)</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </label>
+    <label id="custom-lux-row" class="hidden">
+      Max lux <input type="number" id="customLuxMax" value="500" min="10" max="50000" step="50"> <span>lux</span>
+    </label>
+
+    <div style="height:6px"></div>
+    <div class="toggle-row">
+      <input type="checkbox" id="showTarget">
+      <label for="showTarget" style="margin:0;color:#bbb;">Below-target overlay</label>
+    </div>
+    <label id="target-lux-row" class="hidden">
+      Target lux <input type="number" id="targetLux" value="300" min="1" max="10000" step="10"> <span>lux</span>
+    </label>
+
+    <div class="toggle-row" style="margin-top:4px;">
+      <input type="checkbox" id="showContours">
+      <label for="showContours" style="margin:0;color:#bbb;">Isolux contours</label>
+    </div>
+    <label id="contour-levels-row" class="hidden" style="font-size:11px;color:#555;">
+      Levels (comma-sep)
+      <input type="text" id="contourLevels" value="100,300,500"
+        style="background:#252525;border:1px solid #333;color:#ddd;border-radius:4px;font-size:11px;padding:3px 6px;width:120px;">
+    </label>
+
+    <div class="toggle-row" style="margin-top:4px;">
+      <input type="checkbox" id="showEmerg">
+      <label for="showEmerg" style="margin:0;color:#bbb;">Emergency lighting check</label>
+    </div>
+    <label id="emerg-std-row" class="hidden" style="font-size:11px;color:#555;">
+      Standard
+      <select id="emergStd" style="background:#252525;border:1px solid #333;color:#ddd;border-radius:4px;font-size:11px;padding:2px 4px;margin-left:auto;">
+        <option value="0.5">EN 1838 Anti-panic (0.5 lx)</option>
+        <option value="1" selected>EN 1838 Escape route (1 lx)</option>
+        <option value="15">EN 1838 High risk (15 lx)</option>
+        <option value="10.76">NFPA 101 (10.76 lx)</option>
+      </select>
+    </label>
+
+    <button class="btn-success"   id="btn-export"   style="margin-top:8px;">⬇ Export PNG</button>
+    <label style="margin-top:8px;font-size:11px;color:#555;">
+      Project title
+      <input type="text" id="projectTitle" value="Light Simulation"
+        style="background:#252525;border:1px solid #333;color:#ddd;border-radius:4px;font-size:11px;padding:3px 6px;width:140px;">
+    </label>
+    <button class="btn-secondary" id="btn-reset-view" style="margin-top:4px;">Reset view</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <button class="tool-btn active" id="tool-select">Select / Move</button>
+    <button class="tool-btn"        id="tool-place">Place Light</button>
+    <div class="toolbar-sep"></div>
+    <button class="tool-btn"        id="tool-pin" disabled>Place Pin</button>
+    <div class="toolbar-sep"></div>
+    <button class="tool-btn"        id="tool-ruler">Ruler</button>
+    <div class="toolbar-sep"></div>
+    <span id="cursor-info">Hover canvas for position</span>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div id="legend">
+      <h3>Illuminance (lux)</h3>
+      <canvas id="legend-bar" width="160" height="14"></canvas>
+      <div class="legend-labels">
+        <span>0</span>
+        <span id="lux-q1"></span>
+        <span id="lux-mid"></span>
+        <span id="lux-q3"></span>
+        <span id="lux-max">—</span>
+      </div>
+    </div>
+
+    <div id="lux-cursor"></div>
+    <div id="stats-panel">
+      <h3>Simulation Stats</h3>
+      <div class="stat-row"><span>Max</span><span id="stat-max" class="stat-val">—</span></div>
+      <div class="stat-row"><span>Avg</span><span id="stat-avg" class="stat-val">—</span></div>
+      <div class="stat-row"><span>Min</span><span id="stat-min" class="stat-val">—</span></div>
+      <div class="stat-row"><span>Uniformity (min/avg)</span><span id="stat-uni" class="stat-val">—</span></div>
+      <div class="stat-row" id="stat-emerg-row" style="display:none;"><span id="stat-emerg-label">Compliant area</span><span id="stat-emerg" class="stat-val">—</span></div>
+    </div>
+    <div id="ruler-readout"></div>
+  </div>
+</div>
+
+<script>
+const state = {
+  lights:    [],
+  pins:      [],
+  nextLightId: 1,
+  nextPinId:   1,
+  selectedLightId: null,
+  selectedPinId:   null,
+  mode: 'select',
+  heatmap:  null,
+  rawGrid:  null,
+  maxLux:   0,
+  minLux:   0,
+  avgLux:   0,
+  panX: 0, panY: 0, zoom: 1,
+  dragging: null,
+  panning:  null,
+  simulated: false,
+  ruler: null,
+  rulerDragging: false,
+  bgImage: null,
+  arrayPreview: null,
+  get openArea() { return document.getElementById('openArea').checked; },
+};
+
+const wrap   = document.getElementById('canvas-wrap');
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+function resize() { canvas.width = wrap.clientWidth; canvas.height = wrap.clientHeight; draw(); }
+window.addEventListener('resize', resize);
+
+function roomW()     { return parseFloat(document.getElementById(state.openArea ? 'areaW' : 'roomW').value) || 10; }
+function roomD()     { return parseFloat(document.getElementById(state.openArea ? 'areaD' : 'roomD').value) || 10; }
+function workPlane() { return parseFloat(document.getElementById('workPlane').value) || 0.85; }
+function roomH()     { return parseFloat(document.getElementById('roomH').value)     || 3.0; }
+function reflCeil()  { return parseFloat(document.getElementById('reflCeil').value)  ?? 0.8; }
+function reflWalls() { return parseFloat(document.getElementById('reflWalls').value) ?? 0.5; }
+function reflFloor() { return parseFloat(document.getElementById('reflFloor').value) ?? 0.2; }
+
+function fitView() {
+  const pad = 70, rw = roomW(), rd = roomD();
+  state.zoom = Math.min((canvas.width - pad*2) / rw, (canvas.height - pad*2) / rd);
+  state.panX = (canvas.width  - rw * state.zoom) / 2;
+  state.panY = (canvas.height - rd * state.zoom) / 2;
+}
+function w2c(wx, wy) { return [wx * state.zoom + state.panX, wy * state.zoom + state.panY]; }
+function c2w(cx, cy) { return [(cx - state.panX) / state.zoom, (cy - state.panY) / state.zoom]; }
+
+function luxToColor(lux, maxLux) {
+  if (maxLux === 0) return [0,0,0];
+  const t = Math.min(lux / maxLux, 1);
+  const stops = [
+    [0,    [  0,  0,  0]],
+    [0.12, [  0,  0,110]],
+    [0.30, [  0, 80,200]],
+    [0.50, [  0,190, 90]],
+    [0.70, [200,230,  0]],
+    [0.88, [255,190, 30]],
+    [1.0,  [255,255,255]],
+  ];
+  for (let i = 1; i < stops.length; i++) {
+    if (t <= stops[i][0]) {
+      const f  = (t - stops[i-1][0]) / (stops[i][0] - stops[i-1][0]);
+      const c0 = stops[i-1][1], c1 = stops[i][1];
+      return [Math.round(c0[0]+f*(c1[0]-c0[0])), Math.round(c0[1]+f*(c1[1]-c0[1])), Math.round(c0[2]+f*(c1[2]-c0[2]))];
+    }
+  }
+  return [255,255,255];
+}
+
+function cctTint(K) {
+  if (K < 3000) return [1.0,0.87,0.65];
+  if (K < 4000) return [1.0,0.94,0.80];
+  if (K < 5000) return [1.0,0.98,0.95];
+  if (K < 6500) return [0.96,0.98,1.0];
+  return [0.88,0.93,1.0];
+}
+
+function intensityAtAngle(theta, beamAngle, distrib) {
+  const halfBeam = (beamAngle / 2) * Math.PI / 180;
+  if (theta >= halfBeam || theta >= Math.PI / 2) return 0;
+  const edgeStart = halfBeam * 0.75;
+  const edge = theta > edgeStart
+    ? Math.cos((theta - edgeStart) / (halfBeam - edgeStart) * Math.PI / 2)
+    : 1.0;
+  switch (distrib) {
+    case 'lambertian': return Math.cos(theta) * edge;
+    case 'batwing': {
+      const peak = 35 * Math.PI / 180;
+      return Math.max(0, Math.cos(theta) * (1 + 1.5*Math.sin(theta)*Math.exp(-2*Math.pow(theta-peak,2)))) * edge;
+    }
+    case 'spot':
+      return Math.pow(Math.cos(theta / halfBeam * Math.PI / 2), 3);
+    default: return Math.cos(theta) * edge;
+  }
+}
+
+function getLightSamples(L) {
+  if (L.shape !== 'linear') return [{ x: L.x, y: L.y, lm: L.lumens }];
+  const len = L.length || 1.2;
+  const n   = Math.max(5, Math.ceil(len / 0.08));
+  const rad = ((L.rotation || 0) * Math.PI) / 180;
+  const lm  = L.lumens / n;
+  return Array.from({ length: n }, (_, i) => {
+    const t = (i / (n - 1) - 0.5) * len; // -len/2 … +len/2
+    return { x: L.x + Math.cos(rad) * t, y: L.y + Math.sin(rad) * t, lm };
+  });
+}
+
+function computeNorm(beamAngle, distrib) {
+  const halfBeam = (beamAngle / 2) * Math.PI / 180;
+  const steps = 400;
+  let integral = 0;
+  for (let i = 0; i < steps; i++) {
+    const theta = halfBeam * (i + 0.5) / steps;
+    integral += intensityAtAngle(theta, beamAngle, distrib)
+                * 2 * Math.PI * Math.sin(theta)
+                * (halfBeam / steps);
+  }
+  return integral || 1e-9;
+}
+
+function computeLuxGrid(rw, rd, resolution, lights, wPlane) {
+  const cols = Math.ceil(rw / resolution);
+  const rows = Math.ceil(rd / resolution);
+  const grid = new Float32Array(cols * rows);
+
+  for (const L of lights) {
+    const dz = L.mountH - wPlane;
+    if (dz <= 0) continue;
+    const norm    = computeNorm(L.beamAngle, L.distrib);
+    const samples = getLightSamples(L);
+
+    const tiltRad = ((L.aimTilt || 0) * Math.PI) / 180;
+    const azRad   = ((L.aimAz   || 0) * Math.PI) / 180;
+    const bx    = Math.sin(tiltRad) * Math.cos(azRad);
+    const by    = Math.sin(tiltRad) * Math.sin(azRad);
+    const bCosZ = Math.cos(tiltRad);
+
+    for (const s of samples) {
+      const candela = (s.lm * L.llf) / norm;
+      for (let r = 0; r < rows; r++) {
+        const py = (r + 0.5) * resolution;
+        const dy = py - s.y;
+        for (let c = 0; c < cols; c++) {
+          const px = (c + 0.5) * resolution;
+          const dx = px - s.x;
+          const d2     = dx*dx + dy*dy;
+          const d3sq   = d2 + dz*dz;
+          const d3     = Math.sqrt(d3sq);
+          const cosTheta = (bx*dx + by*dy + bCosZ*dz) / d3;
+          if (cosTheta <= 0) continue;
+          const theta = Math.acos(Math.min(1, cosTheta));
+          const I     = candela * intensityAtAngle(theta, L.beamAngle, L.distrib);
+          const E     = (I * (dz/d3)) / d3sq;
+          grid[r*cols+c] += Math.max(0, E);
+        }
+      }
+    }
+  }
+  return { grid, cols, rows };
+}
+
+function computeIndirectLux(lights, rw, rd, rh) {
+  let phiTotal = 0;
+  for (const L of lights) phiTotal += L.lumens * L.llf;
+
+  const rc = reflCeil(), rww = reflWalls(), rf = reflFloor();
+  const aFloor   = rw * rd;
+  const aCeiling = rw * rd;
+  const aWalls   = 2 * (rw + rd) * rh;
+  const aTotal   = aFloor + aCeiling + aWalls;
+  const rhoAvg   = (rc * aCeiling + rww * aWalls + rf * aFloor) / aTotal;
+  if (rhoAvg >= 1) return 0;
+  return (phiTotal * rhoAvg) / (aTotal * (1 - rhoAvg));
+}
+
+function applyReflPreset(ceil, walls, floor) {
+  document.getElementById('reflCeil').value  = ceil;
+  document.getElementById('reflWalls').value = walls;
+  document.getElementById('reflFloor').value = floor;
+}
+
+function downsampleGrid(grid, cols, rows, res, iCols, iRows, indRes) {
+  const out   = new Float64Array(iCols * iRows);
+  const count = new Uint16Array(iCols * iRows);
+  for (let r = 0; r < rows; r++) {
+    const ir = Math.min(iRows - 1, Math.floor(((r + 0.5) * res) / indRes));
+    for (let c = 0; c < cols; c++) {
+      const ic = Math.min(iCols - 1, Math.floor(((c + 0.5) * res) / indRes));
+      out[ir * iCols + ic] += grid[r * cols + c];
+      count[ir * iCols + ic]++;
+    }
+  }
+  for (let i = 0; i < out.length; i++) if (count[i]) out[i] /= count[i];
+  return out;
+}
+
+function lambertianTransfer(src, iCols, iRows, indRes, H, rho) {
+  const dst = new Float64Array(iCols * iRows);
+  const H2  = H * H;
+  const dA  = indRes * indRes;
+  for (let ir = 0; ir < iRows; ir++) {
+    const cy = (ir + 0.5) * indRes;
+    for (let ic = 0; ic < iCols; ic++) {
+      const cx = (ic + 0.5) * indRes;
+      let E = 0;
+      for (let jr = 0; jr < iRows; jr++) {
+        const dy2 = (cy - (jr + 0.5) * indRes) ** 2;
+        for (let jc = 0; jc < iCols; jc++) {
+          const v = src[jr * iCols + jc];
+          if (v <= 0) continue;
+          const dx2 = (cx - (jc + 0.5) * indRes) ** 2;
+          const d2  = dx2 + dy2 + H2;
+          E += v * H2 / (Math.PI * d2 * d2) * dA;
+        }
+      }
+      dst[ir * iCols + ic] = E * rho;
+    }
+  }
+  return dst;
+}
+
+function upsampleGrid(coarse, iCols, iRows, indRes, cols, rows, res) {
+  const out = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    const fir = ((r + 0.5) * res) / indRes - 0.5;
+    const ir0 = Math.max(0, Math.floor(fir));
+    const ir1 = Math.min(iRows - 1, ir0 + 1);
+    const ty  = fir - ir0;
+    for (let c = 0; c < cols; c++) {
+      const fic = ((c + 0.5) * res) / indRes - 0.5;
+      const ic0 = Math.max(0, Math.floor(fic));
+      const ic1 = Math.min(iCols - 1, ic0 + 1);
+      const tx  = fic - ic0;
+      out[r * cols + c] =
+        (1-tx)*(1-ty) * coarse[ir0*iCols+ic0] +
+        tx*(1-ty)     * coarse[ir0*iCols+ic1] +
+        (1-tx)*ty     * coarse[ir1*iCols+ic0] +
+        tx*ty         * coarse[ir1*iCols+ic1];
+    }
+  }
+  return out;
+}
+
+function computeMultiBounce(directGrid, cols, rows, resolution, rw, rd, wPlane, rh, nBounces) {
+  const rc = reflCeil(), rww = reflWalls(), rf = reflFloor();
+  const H  = rh - wPlane;
+  if (H <= 0 || nBounces <= 0) return null;
+
+  const indRes = Math.max(0.4, Math.min(rw / 60, rd / 60, 2));
+  const iCols  = Math.ceil(rw / indRes);
+  const iRows  = Math.ceil(rd / indRes);
+
+  const totalCoarse = new Float64Array(iCols * iRows);
+  let curFloor = downsampleGrid(directGrid, cols, rows, resolution, iCols, iRows, indRes);
+
+  const aFloor = rw * rd;
+  const aWalls = 2 * (rw + rd) * rh;
+
+  for (let b = 0; b < nBounces; b++) {
+    const ceilLux = lambertianTransfer(curFloor, iCols, iRows, indRes, H, rf);
+
+    let avgFloor = 0;
+    for (let i = 0; i < curFloor.length; i++) avgFloor += curFloor[i];
+    avgFloor /= curFloor.length;
+    const wallBoost = avgFloor * rf * rww * aWalls / (aFloor + aWalls);
+    for (let i = 0; i < ceilLux.length; i++) ceilLux[i] += wallBoost;
+
+    const newFloor = lambertianTransfer(ceilLux, iCols, iRows, indRes, H, rc);
+    for (let i = 0; i < totalCoarse.length; i++) totalCoarse[i] += newFloor[i];
+    curFloor = newFloor;
+  }
+
+  return upsampleGrid(totalCoarse, iCols, iRows, indRes, cols, rows, resolution);
+}
+
+function updateStatsPanel() {
+  const panel = document.getElementById('stats-panel');
+  if (!state.simulated) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  const uni = state.avgLux > 0 ? state.minLux / state.avgLux : 0;
+  document.getElementById('stat-max').textContent = fmtLux(state.maxLux) + ' lx';
+  document.getElementById('stat-avg').textContent = fmtLux(state.avgLux) + ' lx';
+  document.getElementById('stat-min').textContent = fmtLux(state.minLux) + ' lx';
+
+  const uniEl = document.getElementById('stat-uni');
+  uniEl.textContent = uni.toFixed(2);
+  uniEl.className = uni >= 0.6 ? 'stat-ok' : uni >= 0.4 ? 'stat-val' : 'stat-bad';
+
+  const emergRow = document.getElementById('stat-emerg-row');
+  if (document.getElementById('showEmerg').checked && state.rawGrid) {
+    const threshold = parseFloat(document.getElementById('emergStd').value) || 1;
+    let pass = 0;
+    for (let i = 0; i < state.rawGrid.length; i++) if (state.rawGrid[i] >= threshold) pass++;
+    const pct = (pass / state.rawGrid.length * 100).toFixed(1);
+    document.getElementById('stat-emerg-label').textContent = `≥ ${threshold} lx compliant`;
+    const emergEl = document.getElementById('stat-emerg');
+    emergEl.textContent = pct + '%';
+    emergEl.className = pct >= 95 ? 'stat-ok' : pct >= 80 ? 'stat-val' : 'stat-bad';
+    emergRow.style.display = '';
+  } else {
+    emergRow.style.display = 'none';
+  }
+}
+
+function parseContourLevels() {
+  return document.getElementById('contourLevels').value
+    .split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v) && v > 0).sort((a,b) => a-b);
+}
+
+function renderContours(canvasCtx, coordFn, dotR) {
+  if (!state.rawGrid || !state.heatmap) return;
+  if (!document.getElementById('showContours').checked) return;
+  const grid = state.rawGrid;
+  const { cols, rows, resolution } = state.heatmap;
+  const levels = parseContourLevels();
+  if (!levels.length) return;
+  const sMax = scaleMax();
+  const r = dotR || 1.5;
+
+  for (const level of levels) {
+    const [R, G, B] = luxToColor(level / sMax, 1);
+    canvasCtx.fillStyle = `rgb(${R},${G},${B})`;
+
+    // dots on horizontal edges
+    for (let row = 0; row < rows - 1; row++) {
+      for (let col = 0; col < cols; col++) {
+        const v0 = grid[row * cols + col];
+        const v1 = grid[(row + 1) * cols + col];
+        if ((v0 < level) !== (v1 < level)) {
+          const t = (level - v0) / (v1 - v0);
+          const [px, py] = coordFn((col + 0.5) * resolution, (row + t) * resolution);
+          canvasCtx.beginPath(); canvasCtx.arc(px, py, r, 0, Math.PI * 2); canvasCtx.fill();
+        }
+      }
+    }
+    // dots on vertical edges
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols - 1; col++) {
+        const v0 = grid[row * cols + col];
+        const v1 = grid[row * cols + col + 1];
+        if ((v0 < level) !== (v1 < level)) {
+          const t = (level - v0) / (v1 - v0);
+          const [px, py] = coordFn((col + t) * resolution, (row + 0.5) * resolution);
+          canvasCtx.beginPath(); canvasCtx.arc(px, py, r, 0, Math.PI * 2); canvasCtx.fill();
+        }
+      }
+    }
+
+    let labeled = false;
+    outer: for (let row = 0; row < rows - 1; row++) {
+      for (let col = 1; col < cols - 1; col++) {
+        const v0 = grid[row * cols + col];
+        const v1 = grid[(row + 1) * cols + col];
+        if ((v0 < level) !== (v1 < level)) {
+          const t = (level - v0) / (v1 - v0);
+          const [px, py] = coordFn((col + 0.5) * resolution, (row + t) * resolution);
+          const label = fmtLux(level) + ' lx';
+          const fontSize = r > 2 ? 18 : 10;
+          canvasCtx.save();
+          canvasCtx.font = `bold ${fontSize}px Segoe UI,sans-serif`;
+          const tw = canvasCtx.measureText(label).width;
+          canvasCtx.fillStyle = 'rgba(0,0,0,0.65)';
+          canvasCtx.fillRect(px + r + 3, py - fontSize, tw + 6, fontSize + 4);
+          canvasCtx.fillStyle = `rgb(${R},${G},${B})`;
+          canvasCtx.textAlign = 'left';
+          canvasCtx.fillText(label, px + r + 5, py);
+          canvasCtx.restore();
+          labeled = true;
+          break outer;
+        }
+      }
+    }
+  }
+}
+
+function drawContours() { renderContours(ctx, w2c, 1.5); }
+
+function renderTargetOverlay(canvasCtx, coordFn) {
+  if (!state.rawGrid || !state.heatmap) return;
+  if (!document.getElementById('showTarget').checked) return;
+  const target = parseFloat(document.getElementById('targetLux').value) || 300;
+  const grid = state.rawGrid;
+  const { cols, rows, resolution } = state.heatmap;
+  canvasCtx.save();
+  canvasCtx.fillStyle = 'rgba(220,30,30,0.35)';
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      if (grid[row * cols + col] < target) {
+        const [px,  py]  = coordFn(col * resolution,       row * resolution);
+        const [px2, py2] = coordFn((col + 1) * resolution, (row + 1) * resolution);
+        canvasCtx.fillRect(px, py, Math.max(1, px2 - px), Math.max(1, py2 - py));
+      }
+    }
+  }
+  canvasCtx.restore();
+}
+
+function drawTargetOverlay() { renderTargetOverlay(ctx, w2c); }
+
+function renderEmergencyOverlay(canvasCtx, coordFn) {
+  if (!state.rawGrid || !state.heatmap) return;
+  if (!document.getElementById('showEmerg').checked) return;
+  const threshold = parseFloat(document.getElementById('emergStd').value) || 1;
+  const grid = state.rawGrid;
+  const { cols, rows, resolution } = state.heatmap;
+  canvasCtx.save();
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const lux = grid[row * cols + col];
+      canvasCtx.fillStyle = lux >= threshold ? 'rgba(0,200,80,0.28)' : 'rgba(220,30,30,0.40)';
+      const [px,  py]  = coordFn(col * resolution,       row * resolution);
+      const [px2, py2] = coordFn((col + 1) * resolution, (row + 1) * resolution);
+      canvasCtx.fillRect(px, py, Math.max(1, px2 - px), Math.max(1, py2 - py));
+    }
+  }
+  canvasCtx.restore();
+}
+
+function drawEmergencyOverlay() { renderEmergencyOverlay(ctx, w2c); }
+
+function drawRuler() {
+  if (!state.ruler) return;
+  const { x1, y1, x2, y2 } = state.ruler;
+  const [cx1, cy1] = w2c(x1, y1);
+  const [cx2, cy2] = w2c(x2, y2);
+  const dist = Math.hypot(x2 - x1, y2 - y1);
+
+  ctx.save();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  ctx.beginPath(); ctx.moveTo(cx1, cy1); ctx.lineTo(cx2, cy2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  const angle = Math.atan2(cy2 - cy1, cx2 - cx1);
+  const perpA = angle + Math.PI / 2;
+  for (const [cx, cy] of [[cx1, cy1], [cx2, cy2]]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(perpA) * 6, cy + Math.sin(perpA) * 6);
+    ctx.lineTo(cx - Math.cos(perpA) * 6, cy - Math.sin(perpA) * 6);
+    ctx.stroke();
+  }
+
+  const mx = (cx1 + cx2) / 2, my = (cy1 + cy2) / 2;
+  const label = dist < 1 ? (dist * 100).toFixed(0) + ' cm' : dist.toFixed(2) + ' m';
+  ctx.font = 'bold 12px Segoe UI,sans-serif';
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.beginPath(); ctx.roundRect(mx - tw/2 - 5, my - 11, tw + 10, 16, 3); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, mx, my);
+  ctx.restore();
+}
+
+function gridLux(wx, wy) {
+  if (!state.rawGrid || !state.heatmap) return null;
+  const hm  = state.heatmap;
+  const col = Math.floor(wx / hm.resolution);
+  const row = Math.floor(wy / hm.resolution);
+  if (col < 0 || col >= hm.cols || row < 0 || row >= hm.rows) return null;
+  return state.rawGrid[row * hm.cols + col];
+}
+
+function scaleMax() {
+  const v = document.getElementById('luxScale').value;
+  if (v === 'auto')   return state.maxLux || 1;
+  if (v === 'custom') return parseFloat(document.getElementById('customLuxMax').value) || 500;
+  return parseFloat(v);
+}
+
+function simulate() {
+  if (state.lights.length === 0) { alert('Place at least one light first.'); return; }
+  const rw = roomW(), rd = roomD(), wPlane = workPlane();
+  const resolution = Math.max(0.04, Math.min(rw, rd) / 450);
+  const { grid, cols, rows } = computeLuxGrid(rw, rd, resolution, state.lights, wPlane);
+
+  if (!state.openArea) {
+    const nBounces = parseInt(document.getElementById('reflBounces').value) || 3;
+    const indirect = computeMultiBounce(grid, cols, rows, resolution, rw, rd, wPlane, roomH(), nBounces);
+    if (indirect) {
+      for (let i = 0; i < grid.length; i++) grid[i] += indirect[i];
+    }
+  }
+
+  let maxLux = 0, minLux = Infinity, sumLux = 0;
+  for (let i = 0; i < grid.length; i++) {
+    maxLux = Math.max(maxLux, grid[i]);
+    minLux = Math.min(minLux, grid[i]);
+    sumLux += grid[i];
+  }
+  const avgLux = sumLux / grid.length;
+  state.maxLux  = maxLux;
+  state.minLux  = minLux === Infinity ? 0 : minLux;
+  state.avgLux  = avgLux;
+  state.rawGrid = grid;
+  state.heatmap = { imgData: null, cols, rows, rw, rd, resolution };
+  state.simulated = true;
+  updateStatsPanel();
+
+  for (const p of state.pins) {
+    const lux = gridLux(p.x, p.y);
+    if (lux !== null) p.lux = lux;
+  }
+
+  document.getElementById('btn-pin-mode').disabled = false;
+  document.getElementById('tool-pin').disabled     = false;
+  refreshPinList();
+  renderHeatmap(); // colours + legend + draw
+}
+
+function renderHeatmap() {
+  if (!state.rawGrid || !state.heatmap) return;
+  const { cols, rows } = state.heatmap;
+  const sMax   = scaleMax();
+  const imgData = new ImageData(cols, rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const [R,G,B] = luxToColor(state.rawGrid[r*cols+c], sMax);
+      const idx = (r*cols+c)*4;
+      imgData.data[idx]=R; imgData.data[idx+1]=G; imgData.data[idx+2]=B; imgData.data[idx+3]=210;
+    }
+  }
+  state.heatmap.imgData = imgData;
+  updateLegendBar();
+  draw();
+}
+
+function fmtLux(v) { return v < 10 ? v.toFixed(1) : v < 100 ? v.toFixed(0) : Math.round(v).toString(); }
+
+function updateLegendBar() {
+  const sMax = scaleMax();
+  const lc   = document.getElementById('legend-bar');
+  const lct  = lc.getContext('2d');
+  const grd  = lct.createLinearGradient(0, 0, 160, 0);
+  [0,0.12,0.30,0.50,0.70,0.88,1.0].forEach(t => {
+    const [R,G,B] = luxToColor(t, 1);
+    grd.addColorStop(t, `rgb(${R},${G},${B})`);
+  });
+  lct.fillStyle = grd;
+  lct.fillRect(0, 0, 160, 14);
+
+  document.getElementById('lux-q1').textContent  = fmtLux(sMax * 0.25);
+  document.getElementById('lux-mid').textContent = fmtLux(sMax * 0.50);
+  document.getElementById('lux-q3').textContent  = fmtLux(sMax * 0.75);
+  document.getElementById('lux-max').textContent = fmtLux(sMax);
+}
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#0d0d0d';
+  ctx.fillRect(0,0,W,H);
+
+  const rw = roomW(), rd = roomD();
+  const [x0,y0] = w2c(0,0);
+  const [x1,y1] = w2c(rw,rd);
+
+  if (state.bgImage) {
+    const opacity   = (parseFloat(document.getElementById('bgOpacity').value) || 30) / 100;
+    const bgS       = (parseFloat(document.getElementById('bgScale').value)  || 100) / 100;
+    const bgX       = parseFloat(document.getElementById('bgOffX').value) || 0;
+    const bgY       = parseFloat(document.getElementById('bgOffY').value) || 0;
+    const imgWorldW = roomW() * bgS;
+    const imgWorldH = imgWorldW * (state.bgImage.naturalHeight / state.bgImage.naturalWidth);
+    const [ibx, iby] = w2c(bgX, bgY);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, y0, x1 - x0, y1 - y0);
+    ctx.clip();
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(state.bgImage, ibx, iby, imgWorldW * state.zoom, imgWorldH * state.zoom);
+    ctx.restore();
+  }
+
+  if (state.heatmap) {
+    const hm  = state.heatmap;
+    const off = document.createElement('canvas');
+    off.width  = hm.cols; off.height = hm.rows;
+    off.getContext('2d').putImageData(hm.imgData, 0, 0);
+    ctx.imageSmoothingEnabled  = true;
+    ctx.imageSmoothingQuality  = 'high';
+    ctx.drawImage(off, x0, y0, x1-x0, y1-y0);
+  }
+
+  drawTargetOverlay();
+  drawEmergencyOverlay();
+
+  if (!state.openArea) {
+    ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.setLineDash([]);
+  } else {
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.setLineDash([6,4]);
+  }
+  ctx.strokeRect(x0, y0, x1-x0, y1-y0);
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.lineWidth = 0.5;
+  const gs = gridStep();
+  for (let gx = 0; gx <= rw+.001; gx += gs) { const [cx] = w2c(gx,0); ctx.beginPath(); ctx.moveTo(cx,y0); ctx.lineTo(cx,y1); ctx.stroke(); }
+  for (let gy = 0; gy <= rd+.001; gy += gs) { const [,cy] = w2c(0,gy); ctx.beginPath(); ctx.moveTo(x0,cy); ctx.lineTo(x1,cy); ctx.stroke(); }
+
+  ctx.fillStyle='#555'; ctx.font='11px Segoe UI,sans-serif'; ctx.textAlign='center';
+  ctx.fillText(rw.toFixed(1)+' m', (x0+x1)/2, y1+18);
+  ctx.save(); ctx.translate(x0-20,(y0+y1)/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText(rd.toFixed(1)+' m', 0, 0); ctx.restore();
+
+  for (const L of state.lights) {
+    const [lx,ly] = w2c(L.x, L.y);
+    const isSel   = L.id === state.selectedLightId;
+    const tint    = cctTint(L.cct);
+    const tr      = t => Math.round(t*255);
+    const tc      = `rgb(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])})`;
+    const halfRad = (L.beamAngle/2)*Math.PI/180;
+    const coneR   = L.mountH * Math.tan(halfRad) * state.zoom;
+
+    if (L.shape === 'linear') {
+      const len = L.length || 1.2;
+      const rad = ((L.rotation || 0) * Math.PI) / 180;
+      const [sx,sy] = w2c(L.x - Math.cos(rad)*len/2, L.y - Math.sin(rad)*len/2);
+      const [ex,ey] = w2c(L.x + Math.cos(rad)*len/2, L.y + Math.sin(rad)*len/2);
+
+      const nGlow = Math.max(5, Math.ceil(len * state.zoom / 30));
+      for (let i = 0; i < nGlow; i++) {
+        const t  = i / (nGlow - 1);
+        const gx = sx + (ex-sx)*t, gy = sy + (ey-sy)*t;
+        const gr = ctx.createRadialGradient(gx,gy,0,gx,gy,coneR);
+        gr.addColorStop(0,   `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.10)`);
+        gr.addColorStop(0.5, `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.04)`);
+        gr.addColorStop(1,   'rgba(0,0,0,0)');
+        ctx.beginPath(); ctx.arc(gx,gy,coneR,0,Math.PI*2);
+        ctx.fillStyle = gr; ctx.fill();
+      }
+      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey);
+      ctx.strokeStyle = tc;
+      ctx.lineWidth   = isSel ? 5 : 3;
+      ctx.lineCap     = 'round';
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+      if (isSel) {
+        ctx.beginPath(); ctx.arc(lx,ly,7,0,Math.PI*2);
+        ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.stroke();
+      }
+      // label
+      ctx.fillStyle = isSel ? '#f5a623' : '#aaa';
+      ctx.font = '10px Segoe UI,sans-serif'; ctx.textAlign='left';
+      ctx.fillText(`L${L.id}`, lx+10, ly+4);
+
+    } else {
+      const grad = ctx.createRadialGradient(lx,ly,0,lx,ly,coneR);
+      grad.addColorStop(0,   `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.20)`);
+      grad.addColorStop(0.6, `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.07)`);
+      grad.addColorStop(1,   'rgba(0,0,0,0)');
+      ctx.beginPath(); ctx.arc(lx,ly,coneR,0,Math.PI*2);
+      ctx.fillStyle = grad; ctx.fill();
+
+      ctx.beginPath(); ctx.arc(lx,ly,isSel?9:6,0,Math.PI*2);
+      ctx.fillStyle = tc; ctx.fill();
+      if (isSel) { ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.stroke(); }
+
+      ctx.fillStyle = isSel ? '#f5a623' : '#aaa';
+      ctx.font = '10px Segoe UI,sans-serif'; ctx.textAlign='left';
+      ctx.fillText(`L${L.id}`, lx+10, ly+4);
+    }
+
+    if ((L.aimTilt || 0) > 0) {
+      const azRad = ((L.aimAz || 0) * Math.PI) / 180;
+      const arrowLen = 18 + (L.aimTilt / 90) * 18;
+      const ax = lx + Math.cos(azRad) * arrowLen;
+      const ay = ly + Math.sin(azRad) * arrowLen;
+      ctx.save();
+      ctx.strokeStyle = isSel ? '#f5a623' : 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(ax, ay); ctx.stroke();
+      const hAngle = Math.atan2(ay - ly, ax - lx);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - 7*Math.cos(hAngle-0.4), ay - 7*Math.sin(hAngle-0.4));
+      ctx.lineTo(ax - 7*Math.cos(hAngle+0.4), ay - 7*Math.sin(hAngle+0.4));
+      ctx.closePath();
+      ctx.fillStyle = isSel ? '#f5a623' : 'rgba(255,255,255,0.7)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  if (document.getElementById('showContours').checked) drawContours();
+
+  for (const p of state.pins) {
+    const [px,py] = w2c(p.x, p.y);
+    const isSel   = p.id === state.selectedPinId;
+    drawPin(ctx, px, py, p.id, p.lux, isSel);
+  }
+
+  drawRuler();
+
+  if (state.mode === 'array' && state.arrayPreview) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(245,166,35,0.7)';
+    ctx.fillStyle   = 'rgba(245,166,35,0.25)';
+    ctx.lineWidth = 1;
+    for (const [wx, wy] of state.arrayPreview) {
+      const [px, py] = w2c(wx, wy);
+      ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI*2);
+      ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawPin(c, px, py, id, lux, selected) {
+  const r = selected ? 10 : 8;
+  c.beginPath();
+  c.arc(px, py - r, r, 0, Math.PI*2);
+  c.fillStyle = selected ? '#f5a623' : '#e74c3c';
+  c.fill();
+  c.beginPath();
+  c.moveTo(px - r*0.55, py - r);
+  c.lineTo(px, py + 2);
+  c.lineTo(px + r*0.55, py - r);
+  c.fillStyle = selected ? '#f5a623' : '#e74c3c';
+  c.fill();
+  c.fillStyle = '#fff';
+  c.font = `bold ${r-1}px Segoe UI,sans-serif`;
+  c.textAlign = 'center';
+  c.fillText(`${id}`, px, py - r + (r-1)*0.38);
+  if (lux !== null && lux !== undefined) {
+    const txt  = `${fmtLux(lux)} lx`;
+    c.font     = '10px Segoe UI,sans-serif';
+    const tw   = c.measureText(txt).width;
+    const bx   = px + r + 3;
+    const by   = py - r * 2 - 4;
+    c.fillStyle = 'rgba(0,0,0,0.75)';
+    c.beginPath();
+    c.roundRect(bx - 3, by - 11, tw + 8, 15, 3);
+    c.fill();
+    c.fillStyle = selected ? '#f5a623' : '#eee';
+    c.textAlign = 'left';
+    c.fillText(txt, bx + 1, by);
+  }
+}
+
+function gridStep() {
+  const steps = [0.1,0.25,0.5,1,2,5,10,20,50,100,200];
+  return steps.find(s => s * state.zoom >= 40) || 200;
+}
+
+const specFields = ['lumens','beamAngle','mountH','cct','llf','distrib','shape','lightLength','lightRotation','aimTilt','aimAz'];
+
+function readSpec() {
+  return {
+    shape:    document.getElementById('shape').value,
+    length:   parseFloat(document.getElementById('lightLength').value)   || 1.2,
+    rotation: parseFloat(document.getElementById('lightRotation').value) || 0,
+    lumens:    parseFloat(document.getElementById('lumens').value)    || 3000,
+    beamAngle: parseFloat(document.getElementById('beamAngle').value) || 120,
+    mountH:    parseFloat(document.getElementById('mountH').value)    || 3.0,
+    cct:       parseFloat(document.getElementById('cct').value)       || 4000,
+    llf:       parseFloat(document.getElementById('llf').value)       || 0.8,
+    distrib:   document.getElementById('distrib').value,
+    aimTilt:   parseFloat(document.getElementById('aimTilt').value)   || 0,
+    aimAz:     parseFloat(document.getElementById('aimAz').value)     || 0,
+  };
+}
+
+function loadSpec(L) {
+  if (!L) {
+    document.getElementById('spec-editing').textContent = '';
+    return;
+  }
+  document.getElementById('spec-editing').textContent = `— L${L.id}`;
+  document.getElementById('shape').value         = L.shape    || 'point';
+  document.getElementById('lightLength').value   = L.length   || 1.2;
+  document.getElementById('lightRotation').value = L.rotation || 0;
+  document.getElementById('lumens').value    = L.lumens;
+  document.getElementById('beamAngle').value = L.beamAngle;
+  document.getElementById('mountH').value    = L.mountH;
+  document.getElementById('cct').value       = L.cct;
+  document.getElementById('llf').value       = L.llf;
+  document.getElementById('distrib').value   = L.distrib;
+  document.getElementById('aimTilt').value   = L.aimTilt || 0;
+  document.getElementById('aimAz').value     = L.aimAz   || 0;
+  const isLinear = (L.shape || 'point') === 'linear';
+  document.getElementById('linear-opts').classList.toggle('hidden', !isLinear);
+  document.getElementById('aim-az-row').style.display = isLinear ? 'none' : '';
+}
+
+specFields.forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (id === 'shape') {
+      const isLinear = document.getElementById('shape').value === 'linear';
+      document.getElementById('linear-opts').classList.toggle('hidden', !isLinear);
+      document.getElementById('aim-az-row').style.display = isLinear ? 'none' : '';
+    }
+    const L = state.lights.find(l => l.id === state.selectedLightId);
+    if (!L) return;
+    Object.assign(L, readSpec());
+    state.heatmap   = null;
+    state.rawGrid   = null;
+    state.simulated = false;
+    document.getElementById('btn-pin-mode').disabled = true;
+    document.getElementById('tool-pin').disabled     = true;
+    refreshLightList();
+    draw();
+  });
+});
+
+const GRID_SNAP = 0.25;
+function snap(v) { return Math.round(v / GRID_SNAP) * GRID_SNAP; }
+
+function renumberLights() {
+  const sel = state.lights.find(l => l.id === state.selectedLightId);
+  state.lights.forEach((L, i) => { L.id = i + 1; });
+  state.nextLightId = state.lights.length + 1;
+  if (sel) {
+    state.selectedLightId = sel.id; // id was updated in place above
+    document.getElementById('spec-editing').textContent = `— L${sel.id}`;
+  } else {
+    state.selectedLightId = null;
+    document.getElementById('spec-editing').textContent = '';
+  }
+}
+
+function renumberPins() {
+  const sel = state.pins.find(p => p.id === state.selectedPinId);
+  state.pins.forEach((p, i) => { p.id = i + 1; });
+  state.nextPinId = state.pins.length + 1;
+  state.selectedPinId = sel ? sel.id : null;
+}
+
+function buildArrayPositions(cx, cy) {
+  const rows  = parseInt(document.getElementById('arrRows').value) || 2;
+  const cols  = parseInt(document.getElementById('arrCols').value) || 3;
+  const spX   = parseFloat(document.getElementById('arrSpX').value) || 2.5;
+  const spY   = parseFloat(document.getElementById('arrSpY').value) || 2.5;
+  const positions = [];
+  const offX = (cols - 1) * spX / 2;
+  const offY = (rows - 1) * spY / 2;
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      positions.push([cx + c * spX - offX, cy + r * spY - offY]);
+  return positions;
+}
+
+function addLight(wx, wy) {
+  const L = { id: state.nextLightId++, x: snap(wx), y: snap(wy), ...readSpec() };
+  state.lights.push(L);
+  selectLight(L.id);
+  invalidateSim();
+}
+
+function removeLight(id) {
+  state.lights = state.lights.filter(l => l.id !== id);
+  renumberLights();
+  invalidateSim();
+  refreshLightList();
+  draw();
+}
+
+function selectLight(id) {
+  state.selectedLightId = id;
+  state.selectedPinId   = null;
+  const L = state.lights.find(l => l.id === id);
+  loadSpec(L);
+  refreshLightList();
+  refreshPinList();
+  draw();
+}
+
+function refreshLightList() {
+  const ul = document.getElementById('light-list');
+  ul.innerHTML = '';
+  for (const L of state.lights) {
+    const li = document.createElement('li');
+    li.className = L.id === state.selectedLightId ? 'selected' : '';
+    li.innerHTML = `<span class="info">L${L.id} — ${L.lumens}lm ${L.beamAngle}° @${L.mountH}m</span>
+      <button class="rm" title="Remove">✕</button>`;
+    li.addEventListener('click', e => {
+      if (e.target.classList.contains('rm')) { removeLight(L.id); return; }
+      selectLight(L.id);
+    });
+    ul.appendChild(li);
+  }
+}
+
+function addPin(wx, wy) {
+  const lux = gridLux(wx, wy);
+  if (lux === null) return;
+  const p = { id: state.nextPinId++, x: wx, y: wy, lux };
+  state.pins.push(p);
+  state.selectedPinId   = p.id;
+  state.selectedLightId = null;
+  document.getElementById('spec-editing').textContent = '';
+  refreshLightList();
+  refreshPinList();
+  draw();
+}
+
+function removePin(id) {
+  state.pins = state.pins.filter(p => p.id !== id);
+  renumberPins();
+  refreshPinList();
+  draw();
+}
+
+function selectPin(id) {
+  state.selectedPinId   = id;
+  state.selectedLightId = null;
+  document.getElementById('spec-editing').textContent = '';
+  refreshLightList();
+  refreshPinList();
+  draw();
+}
+
+function refreshPinList() {
+  const ul = document.getElementById('pin-list');
+  ul.innerHTML = '';
+  for (const p of state.pins) {
+    const li = document.createElement('li');
+    li.className = p.id === state.selectedPinId ? 'selected' : '';
+    li.innerHTML = `<span class="pin-badge">${p.id}</span>
+      <span class="info">${fmtLux(p.lux)} lx &nbsp;(${p.x.toFixed(1)}, ${p.y.toFixed(1)} m)</span>
+      <button class="rm" title="Remove">✕</button>`;
+    li.addEventListener('click', e => {
+      if (e.target.classList.contains('rm')) { removePin(p.id); return; }
+      selectPin(p.id);
+    });
+    ul.appendChild(li);
+  }
+}
+
+function invalidateSim() {
+  state.heatmap   = null;
+  state.rawGrid   = null;
+  state.simulated = false;
+  document.getElementById('btn-pin-mode').disabled = true;
+  document.getElementById('tool-pin').disabled     = true;
+}
+
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const [wx, wy] = c2w(e.clientX - rect.left, e.clientY - rect.top);
+  document.getElementById('cursor-info').textContent = `x: ${wx.toFixed(2)} m  y: ${wy.toFixed(2)} m`;
+
+  const luxEl = document.getElementById('lux-cursor');
+  const lux   = gridLux(wx, wy);
+  if (lux !== null && state.mode !== 'ruler') {
+    luxEl.textContent = `${fmtLux(lux)} lux`;
+    luxEl.style.display = 'block';
+  } else {
+    luxEl.style.display = 'none';
+  }
+
+  if (state.mode === 'ruler' && state.rulerDragging && state.ruler) {
+    state.ruler.x2 = wx; state.ruler.y2 = wy;
+    const dist = Math.hypot(wx - state.ruler.x1, wy - state.ruler.y1);
+    const label = dist < 1 ? (dist * 100).toFixed(0) + ' cm' : dist.toFixed(2) + ' m';
+    const ro = document.getElementById('ruler-readout');
+    ro.textContent = label; ro.style.display = 'block';
+    draw(); return;
+  }
+
+  if (state.mode === 'array') {
+    state.arrayPreview = buildArrayPositions(wx, wy);
+    draw(); return;
+  }
+
+  if (state.dragging) {
+    const d  = state.dragging;
+    const L  = state.lights.find(l => l.id === d.id);
+    if (L) {
+      L.x = snap(Math.max(0, Math.min(roomW(), d.origX + wx - d.startWX)));
+      L.y = snap(Math.max(0, Math.min(roomD(), d.origY + wy - d.startWY)));
+      invalidateSim();
+      refreshLightList();
+      draw();
+    }
+  }
+  if (state.panning) {
+    state.panX = state.panning.origPanX + (e.clientX - state.panning.startX);
+    state.panY = state.panning.origPanY + (e.clientY - state.panning.startY);
+    draw();
+  }
+});
+
+canvas.addEventListener('mousedown', e => {
+  const rect     = canvas.getBoundingClientRect();
+  const cx       = e.clientX - rect.left;
+  const cy       = e.clientY - rect.top;
+  const [wx, wy] = c2w(cx, cy);
+
+  if (e.button === 1 || e.button === 2) {
+    state.panning = { startX: e.clientX, startY: e.clientY, origPanX: state.panX, origPanY: state.panY };
+    e.preventDefault(); return;
+  }
+
+  if (state.mode === 'place') {
+    addLight(Math.max(0,Math.min(roomW(),wx)), Math.max(0,Math.min(roomD(),wy)));
+    return;
+  }
+
+  if (state.mode === 'pin') {
+    if (state.simulated) addPin(Math.max(0,Math.min(roomW(),wx)), Math.max(0,Math.min(roomD(),wy)));
+    return;
+  }
+
+  if (state.mode === 'ruler') {
+    if (e.button === 0) {
+      state.ruler = { x1: wx, y1: wy, x2: wx, y2: wy };
+      state.rulerDragging = true;
+    }
+    return;
+  }
+
+  if (state.mode === 'array') {
+    const positions = buildArrayPositions(wx, wy);
+    for (const [ax, ay] of positions) {
+      const L = { id: state.nextLightId++, x: snap(Math.max(0, Math.min(roomW(), ax))), y: snap(Math.max(0, Math.min(roomD(), ay))), ...readSpec() };
+      state.lights.push(L);
+    }
+    state.arrayPreview = null;
+    invalidateSim(); refreshLightList(); draw();
+    setMode('select');
+    return;
+  }
+
+  for (const p of state.pins) {
+    const [px,py] = w2c(p.x, p.y);
+    if (Math.hypot(cx-px, cy-(py-8)) < 12) { selectPin(p.id); return; }
+  }
+  for (const L of state.lights) {
+    const [lx,ly] = w2c(L.x, L.y);
+    if (Math.hypot(cx-lx, cy-ly) < 12) {
+      selectLight(L.id);
+      state.dragging = { id: L.id, startWX: wx, startWY: wy, origX: L.x, origY: L.y };
+      return;
+    }
+  }
+  state.panning = { startX: e.clientX, startY: e.clientY, origPanX: state.panX, origPanY: state.panY };
+  state.selectedLightId = null;
+  state.selectedPinId   = null;
+  document.getElementById('spec-editing').textContent = '';
+  refreshLightList();
+  refreshPinList();
+  draw();
+});
+
+canvas.addEventListener('mouseup', () => {
+  state.dragging = null; state.panning = null;
+  if (state.rulerDragging) { state.rulerDragging = false; draw(); }
+});
+canvas.addEventListener('mouseleave', () => { state.dragging = null; state.panning = null; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect   = canvas.getBoundingClientRect();
+  const cx     = e.clientX - rect.left;
+  const cy     = e.clientY - rect.top;
+  const factor = e.deltaY < 0 ? 1.12 : 0.89;
+  state.panX   = cx - (cx - state.panX) * factor;
+  state.panY   = cy - (cy - state.panY) * factor;
+  state.zoom   = Math.max(4, Math.min(600, state.zoom * factor));
+  draw();
+}, { passive: false });
+
+function setMode(m) {
+  state.mode = m;
+  if (m !== 'array') state.arrayPreview = null;
+  document.getElementById('tool-select').classList.toggle('active', m === 'select');
+  document.getElementById('tool-place').classList.toggle('active',  m === 'place');
+  document.getElementById('tool-pin').classList.toggle('active',    m === 'pin');
+  document.getElementById('tool-ruler').classList.toggle('active',  m === 'ruler');
+  wrap.className = m === 'select' ? 'move-mode' : m === 'pin' ? 'pin-mode' : m === 'ruler' ? 'pin-mode' : '';
+  if (m !== 'ruler') { state.ruler = null; document.getElementById('ruler-readout').style.display = 'none'; }
+  draw();
+}
+
+document.getElementById('tool-select').addEventListener('click', () => setMode('select'));
+document.getElementById('tool-place').addEventListener('click',  () => setMode('place'));
+document.getElementById('tool-pin').addEventListener('click',    () => setMode('pin'));
+document.getElementById('tool-ruler').addEventListener('click',  () => setMode('ruler'));
+
+document.getElementById('btn-add-mode').addEventListener('click',  () => setMode('place'));
+document.getElementById('btn-pin-mode').addEventListener('click',  () => setMode('pin'));
+document.getElementById('btn-simulate').addEventListener('click',  simulate);
+
+document.getElementById('btn-array-toggle').addEventListener('click', () => {
+  const panel = document.getElementById('array-panel');
+  const visible = panel.style.display !== 'none' && panel.style.display !== '';
+  panel.style.display = visible ? 'none' : 'block';
+  if (!visible) setMode('array'); else if (state.mode === 'array') setMode('select');
+});
+
+document.getElementById('btn-array-place').addEventListener('click', () => setMode('array'));
+
+document.getElementById('bgImageFile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => { state.bgImage = img; draw(); };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('btn-clear-bg').addEventListener('click', () => {
+  state.bgImage = null;
+  document.getElementById('bgImageFile').value = '';
+  draw();
+});
+
+document.getElementById('bgOpacity').addEventListener('input', () => draw());
+document.getElementById('bgScale').addEventListener('input',  () => draw());
+document.getElementById('bgOffX').addEventListener('input',   () => draw());
+document.getElementById('bgOffY').addEventListener('input',   () => draw());
+
+document.getElementById('showTarget').addEventListener('change', () => {
+  const on = document.getElementById('showTarget').checked;
+  document.getElementById('target-lux-row').classList.toggle('hidden', !on);
+  if (state.simulated) draw();
+});
+
+document.getElementById('targetLux').addEventListener('change', () => { if (state.simulated) draw(); });
+
+document.getElementById('showContours').addEventListener('change', () => {
+  const on = document.getElementById('showContours').checked;
+  document.getElementById('contour-levels-row').classList.toggle('hidden', !on);
+  if (state.simulated) draw();
+});
+
+document.getElementById('contourLevels').addEventListener('change', () => { if (state.simulated) draw(); });
+
+document.getElementById('showEmerg').addEventListener('change', () => {
+  const on = document.getElementById('showEmerg').checked;
+  document.getElementById('emerg-std-row').classList.toggle('hidden', !on);
+  updateStatsPanel();
+  if (state.simulated) draw();
+});
+
+document.getElementById('emergStd').addEventListener('change', () => {
+  updateStatsPanel();
+  if (state.simulated) draw();
+});
+
+document.getElementById('btn-reset-view').addEventListener('click', () => { fitView(); draw(); });
+
+document.getElementById('btn-clear-lights').addEventListener('click', () => {
+  if (!state.lights.length) return;
+  if (!confirm('Remove all lights?')) return;
+  state.lights = []; state.selectedLightId = null; state.nextLightId = 1;
+  document.getElementById('spec-editing').textContent = '';
+  invalidateSim(); refreshLightList(); draw();
+});
+
+document.getElementById('btn-clear-pins').addEventListener('click', () => {
+  if (!state.pins.length) return;
+  state.pins = []; state.selectedPinId = null; state.nextPinId = 1;
+  refreshPinList(); draw();
+});
+
+document.getElementById('openArea').addEventListener('change', () => {
+  const open = state.openArea;
+  document.getElementById('room-dims').classList.toggle('hidden',  open);
+  document.getElementById('open-dims').classList.toggle('hidden', !open);
+  document.getElementById('room-h-label').classList.toggle('hidden', open);
+  document.getElementById('reflectance-section').classList.toggle('hidden', open);
+  invalidateSim(); fitView(); draw();
+});
+
+document.getElementById('luxScale').addEventListener('change', () => {
+  const isCustom = document.getElementById('luxScale').value === 'custom';
+  document.getElementById('custom-lux-row').classList.toggle('hidden', !isCustom);
+  if (state.simulated) renderHeatmap();
+  else updateLegendBar();
+});
+
+document.getElementById('customLuxMax').addEventListener('change', () => {
+  if (state.simulated) renderHeatmap();
+  else updateLegendBar();
+});
+
+['roomW','roomD','areaW','areaD'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => { invalidateSim(); fitView(); draw(); });
+});
+
+document.addEventListener('keydown', e => {
+  const active = document.activeElement;
+  const typing = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA');
+
+  if (e.key === 'Escape') { setMode('select'); document.getElementById('array-panel').style.display = 'none'; }
+  if (!typing) {
+    if (e.key === 'p' || e.key === 'P') setMode('place');
+    if (e.key === 'm' || e.key === 'M') setMode('pin');
+    if (e.key === 'Enter') simulate();
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (state.selectedLightId !== null) removeLight(state.selectedLightId);
+      else if (state.selectedPinId !== null) removePin(state.selectedPinId);
+    }
+  }
+});
+
+document.getElementById('btn-export').addEventListener('click', exportPNG);
+
+function exportPNG() {
+  if (!state.simulated) { alert('Run a simulation first.'); return; }
+
+  const PW = 2480, PH = 1754;
+  const oc  = document.createElement('canvas');
+  oc.width  = PW; oc.height = PH;
+  const c   = oc.getContext('2d');
+
+  const bg = '#ffffff', dark = '#1a1a1a', accent = '#f5a623', red = '#e74c3c';
+
+  c.fillStyle = bg; c.fillRect(0,0,PW,PH);
+
+  c.fillStyle = dark; c.fillRect(0, 0, PW, 110);
+  c.fillStyle = '#fff';
+  c.font = 'bold 46px Segoe UI, sans-serif';
+  c.textAlign = 'left';
+  c.fillText(document.getElementById('projectTitle').value || 'Light Simulation Report', 50, 62);
+  c.font = '22px Segoe UI, sans-serif'; c.fillStyle = '#aaa';
+  const rw = roomW(), rd = roomD();
+  const subtitle = `${state.openArea ? 'Open area' : 'Room'}: ${rw}m × ${rd}m  |  Work-plane: ${workPlane()}m  |  Lights: ${state.lights.length}  |  Max: ${fmtLux(state.maxLux)} lux  |  ${new Date().toLocaleDateString()}`;
+  c.fillText(subtitle, 50, 96);
+
+  const mapMargin = 70, mapTop = 130, mapBot = 90;
+  const rightPanelW = 680;
+  const mapW = PW - rightPanelW - mapMargin * 2 - 20;
+  const mapH = PH - mapTop - mapBot;
+
+  const mScale = Math.min(mapW / rw, mapH / rd);
+  const mOffX  = mapMargin + (mapW - rw * mScale) / 2;
+  const mOffY  = mapTop    + (mapH - rd * mScale) / 2;
+
+  function mw2c(wx, wy) { return [wx * mScale + mOffX, wy * mScale + mOffY]; }
+
+  if (state.bgImage) {
+    const bgOpacity = (parseFloat(document.getElementById('bgOpacity').value) || 30) / 100;
+    const bgS  = (parseFloat(document.getElementById('bgScale').value) || 100) / 100;
+    const bgX  = parseFloat(document.getElementById('bgOffX').value) || 0;
+    const bgY  = parseFloat(document.getElementById('bgOffY').value) || 0;
+    const imgW = rw * bgS * mScale;
+    const imgH = imgW * (state.bgImage.naturalHeight / state.bgImage.naturalWidth);
+    const [ibx, iby] = mw2c(bgX, bgY);
+    const [emx0, emy0] = mw2c(0, 0);
+    const [emx1, emy1] = mw2c(rw, rd);
+    c.save();
+    c.beginPath(); c.rect(emx0, emy0, emx1 - emx0, emy1 - emy0); c.clip();
+    c.globalAlpha = bgOpacity;
+    c.drawImage(state.bgImage, ibx, iby, imgW, imgH);
+    c.restore();
+  }
+
+  const hm  = state.heatmap;
+  const off = document.createElement('canvas');
+  off.width  = hm.cols; off.height = hm.rows;
+  off.getContext('2d').putImageData(hm.imgData, 0, 0);
+  c.imageSmoothingEnabled = true;
+  c.imageSmoothingQuality = 'high';
+  const [mx0,my0] = mw2c(0,0);
+  const [mx1,my1] = mw2c(rw,rd);
+  c.drawImage(off, mx0, my0, mx1-mx0, my1-my0);
+
+  renderTargetOverlay(c, mw2c);
+  renderEmergencyOverlay(c, mw2c);
+
+  c.strokeStyle = state.openArea ? '#888' : '#333';
+  c.lineWidth   = state.openArea ? 1.5 : 3;
+  state.openArea ? c.setLineDash([10,6]) : c.setLineDash([]);
+  c.strokeRect(mx0, my0, mx1-mx0, my1-my0);
+  c.setLineDash([]);
+
+  c.strokeStyle = 'rgba(0,0,0,0.12)'; c.lineWidth = 0.8;
+  const gs = exportGridStep(rw, rd, mapW);
+  for (let gx = 0; gx <= rw+.001; gx += gs) { const [cx] = mw2c(gx,0); c.beginPath(); c.moveTo(cx,my0); c.lineTo(cx,my1); c.stroke(); }
+  for (let gy = 0; gy <= rd+.001; gy += gs) { const [,cy] = mw2c(0,gy); c.beginPath(); c.moveTo(mx0,cy); c.lineTo(mx1,cy); c.stroke(); }
+
+  drawScaleBar(c, mOffX + 10, my1 + 20, mScale, '#444');
+
+  c.fillStyle = '#444'; c.font = '22px Segoe UI, sans-serif'; c.textAlign = 'center';
+  c.fillText(rw.toFixed(1) + ' m', (mx0+mx1)/2, my1+56);
+  c.save(); c.translate(mx0-40, (my0+my1)/2); c.rotate(-Math.PI/2);
+  c.fillText(rd.toFixed(1) + ' m', 0, 0); c.restore();
+
+  for (const L of state.lights) {
+    const [lx,ly] = mw2c(L.x, L.y);
+    const tint = cctTint(L.cct);
+    const tr   = t => Math.round(t*255);
+    const tc   = `rgb(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])})`;
+
+    if (L.shape === 'linear') {
+      const len = L.length || 1.2;
+      const rad = ((L.rotation || 0) * Math.PI) / 180;
+      const [sx,sy] = mw2c(L.x - Math.cos(rad)*len/2, L.y - Math.sin(rad)*len/2);
+      const [ex,ey] = mw2c(L.x + Math.cos(rad)*len/2, L.y + Math.sin(rad)*len/2);
+      c.beginPath(); c.moveTo(sx,sy); c.lineTo(ex,ey);
+      c.strokeStyle = tc; c.lineWidth = 5; c.lineCap = 'round'; c.stroke();
+      c.strokeStyle = '#333'; c.lineWidth = 1.5; c.stroke();
+      c.lineCap = 'butt';
+      c.fillStyle = '#222'; c.font = 'bold 13px Segoe UI,sans-serif'; c.textAlign = 'left';
+      c.fillText(`L${L.id}`, lx+8, ly-6);
+    } else {
+      c.beginPath(); c.arc(lx, ly, 11, 0, Math.PI*2);
+      c.fillStyle = tc; c.fill();
+      c.strokeStyle = '#333'; c.lineWidth = 1.5; c.stroke();
+      c.fillStyle = '#222'; c.font = 'bold 13px Segoe UI,sans-serif'; c.textAlign = 'center';
+      c.fillText(`L${L.id}`, lx, ly + 4.5);
+    }
+  }
+
+  renderContours(c, mw2c, 2.5);
+
+  for (const L of state.lights) {
+    if ((L.aimTilt || 0) > 0) {
+      const [lx, ly] = mw2c(L.x, L.y);
+      const azRad = ((L.aimAz || 0) * Math.PI) / 180;
+      const arrowLen = (18 + (L.aimTilt / 90) * 18) * (mScale / 30);
+      const ax = lx + Math.cos(azRad) * arrowLen;
+      const ay = ly + Math.sin(azRad) * arrowLen;
+      c.save();
+      c.strokeStyle = 'rgba(255,255,255,0.8)'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(lx, ly); c.lineTo(ax, ay); c.stroke();
+      const ha = Math.atan2(ay - ly, ax - lx);
+      c.beginPath(); c.moveTo(ax, ay);
+      c.lineTo(ax - 8*Math.cos(ha-0.4), ay - 8*Math.sin(ha-0.4));
+      c.lineTo(ax - 8*Math.cos(ha+0.4), ay - 8*Math.sin(ha+0.4));
+      c.closePath(); c.fillStyle = 'rgba(255,255,255,0.8)'; c.fill();
+      c.restore();
+    }
+  }
+
+  for (const p of state.pins) {
+    const [px,py] = mw2c(p.x, p.y);
+    const pr = 14;
+    c.beginPath(); c.arc(px, py-pr, pr, 0, Math.PI*2); c.fillStyle = red; c.fill();
+    c.beginPath(); c.moveTo(px-pr*0.55,py-pr); c.lineTo(px,py+3); c.lineTo(px+pr*0.55,py-pr);
+    c.fillStyle = red; c.fill();
+    c.fillStyle = '#fff'; c.font = 'bold 12px Segoe UI,sans-serif'; c.textAlign='center';
+    c.fillText(`${p.id}`, px, py - pr + 5);
+    // lux label
+    const txt = `${fmtLux(p.lux)} lx`;
+    c.font = '14px Segoe UI,sans-serif';
+    const tw = c.measureText(txt).width;
+    c.fillStyle = 'rgba(0,0,0,0.78)';
+    c.beginPath(); c.roundRect(px+pr+2, py-pr*2-4, tw+12, 20, 4); c.fill();
+    c.fillStyle = '#fff'; c.textAlign = 'left';
+    c.fillText(txt, px+pr+8, py-pr*2+12);
+  }
+
+  const rpX = PW - rightPanelW + 30;
+  let   rpY = mapTop + 14;
+  const rpW = rightPanelW - 60;
+
+  const expScaleMax = scaleMax();
+  c.fillStyle = dark; c.font = 'bold 26px Segoe UI,sans-serif'; c.textAlign='left';
+  c.fillText('ILLUMINANCE (LUX)', rpX, rpY); rpY += 32;
+  const gradBar = c.createLinearGradient(rpX, 0, rpX+rpW, 0);
+  [0,0.12,0.30,0.50,0.70,0.88,1.0].forEach(t => {
+    const [R,G,B] = luxToColor(t,1);
+    gradBar.addColorStop(t, `rgb(${R},${G},${B})`);
+  });
+  c.fillStyle = gradBar;
+  c.fillRect(rpX, rpY, rpW, 28);
+  c.strokeStyle='#bbb'; c.lineWidth=1.5; c.strokeRect(rpX, rpY, rpW, 28);
+  c.strokeStyle='rgba(0,0,0,0.3)'; c.lineWidth=1;
+  [0.25,0.50,0.75].forEach(t => {
+    const tx = rpX + rpW*t;
+    c.beginPath(); c.moveTo(tx, rpY+28); c.lineTo(tx, rpY+38); c.stroke();
+  });
+  c.fillStyle='#444'; c.font='18px Segoe UI,sans-serif';
+  c.textAlign='left';   c.fillText('0', rpX, rpY+54);
+  c.textAlign='center'; c.fillText(fmtLux(expScaleMax*0.25), rpX+rpW*0.25, rpY+54);
+  c.textAlign='center'; c.fillText(fmtLux(expScaleMax*0.50), rpX+rpW*0.50, rpY+54);
+  c.textAlign='center'; c.fillText(fmtLux(expScaleMax*0.75), rpX+rpW*0.75, rpY+54);
+  c.textAlign='right';  c.fillText(fmtLux(expScaleMax)+' lux', rpX+rpW, rpY+54);
+  rpY += 80;
+
+  function divider(label) {
+    c.fillStyle='#ccc'; c.fillRect(rpX, rpY, rpW, 1.5); rpY += 14;
+    c.fillStyle=dark; c.font='bold 24px Segoe UI,sans-serif'; c.textAlign='left';
+    c.fillText(label, rpX, rpY); rpY += 32;
+  }
+
+  function tableRow(cols, bold, bg) {
+    const colW = rpW / cols.length;
+    const rowH = 28;
+    if (bg) { c.fillStyle=bg; c.fillRect(rpX, rpY-20, rpW, rowH); }
+    c.font = bold ? 'bold 20px Segoe UI,sans-serif' : '19px Segoe UI,sans-serif';
+    c.fillStyle = bold ? dark : '#333';
+    cols.forEach((txt, i) => {
+      c.textAlign = i === 0 ? 'left' : 'right';
+      const x = i === 0 ? rpX+4 : rpX + colW*(i+1) - 4;
+      c.fillText(String(txt), x, rpY);
+    });
+    rpY += rowH;
+  }
+
+  if (state.simulated) {
+    divider('SIMULATION STATISTICS');
+    const uni = state.avgLux > 0 ? state.minLux / state.avgLux : 0;
+    const statItems = [
+      ['Max illuminance', fmtLux(state.maxLux) + ' lx'],
+      ['Avg illuminance', fmtLux(state.avgLux) + ' lx'],
+      ['Min illuminance', fmtLux(state.minLux) + ' lx'],
+      ['Uniformity (min/avg)', uni.toFixed(2) + (uni >= 0.6 ? '  ✓ EN 12464' : '')],
+    ];
+    if (document.getElementById('showTarget').checked) {
+      const tgt = parseFloat(document.getElementById('targetLux').value) || 300;
+      statItems.push(['Target lux', fmtLux(tgt) + ' lx (overlay shown)']);
+    }
+    for (const [label, val] of statItems) {
+      c.font = '19px Segoe UI,sans-serif'; c.fillStyle = '#333';
+      c.textAlign = 'left';  c.fillText(label, rpX + 4, rpY);
+      c.textAlign = 'right'; c.fillText(val, rpX + rpW - 4, rpY);
+      rpY += 28;
+    }
+    rpY += 14;
+  }
+
+  if (state.pins.length) {
+    divider('MEASUREMENT PINS');
+    tableRow(['Pin','Position','Lux','% Max'], true, '#eee');
+    for (const p of state.pins) {
+      const pct = expScaleMax > 0 ? ((p.lux/expScaleMax)*100).toFixed(0)+'%' : '—';
+      tableRow([`P${p.id}`, `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`, fmtLux(p.lux)+' lx', pct]);
+    }
+    rpY += 14;
+  }
+
+  divider('LIGHT SCHEDULE');
+  tableRow(['ID','Position','Type','lm','Beam','Height','CCT'], true, '#eee');
+  for (const L of state.lights) {
+    const typeStr = L.shape === 'linear'
+      ? `Linear ${(L.length||1.2).toFixed(1)}m @${(L.rotation||0)}°`
+      : 'Point';
+    tableRow([
+      `L${L.id}`,
+      `${L.x.toFixed(1)}, ${L.y.toFixed(1)} m`,
+      typeStr,
+      L.lumens+' lm',
+      L.beamAngle+'°',
+      L.mountH+' m',
+      L.cct+' K',
+    ]);
+  }
+
+  c.fillStyle='#aaa'; c.font='18px Segoe UI,sans-serif'; c.textAlign='right';
+  c.fillText('Light Dispersion Simulator', PW-50, PH-24);
+
+  oc.toBlob(blob => {
+    const a   = document.createElement('a');
+    a.href    = URL.createObjectURL(blob);
+    a.download = (document.getElementById('projectTitle').value || 'light-sim') + '.png';
+    a.click();
+  }, 'image/png');
+}
+
+function exportGridStep(rw, rd, mapW) {
+  const steps = [0.5,1,2,5,10,20,50];
+  const mScale = mapW / rw;
+  return steps.find(s => s * mScale >= 50) || 50;
+}
+
+function drawScaleBar(c, x, y, scale, color) {
+  const nice = [0.5,1,2,5,10,20,50].find(s => s*scale >= 60) || 50;
+  const len  = nice * scale;
+  c.strokeStyle = color; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(x,y); c.lineTo(x+len,y); c.stroke();
+  c.beginPath(); c.moveTo(x,y-6); c.lineTo(x,y+6); c.stroke();
+  c.beginPath(); c.moveTo(x+len,y-6); c.lineTo(x+len,y+6); c.stroke();
+  c.fillStyle = color; c.font='20px Segoe UI,sans-serif'; c.textAlign='center';
+  c.fillText(nice >= 1 ? nice+'m' : (nice*100)+'cm', x+len/2, y-10);
+}
+
+updateLegendBar();
+resize();
+fitView();
+draw();
+</script>
+</body>
+</html>
