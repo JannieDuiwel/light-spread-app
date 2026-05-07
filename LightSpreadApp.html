@@ -514,6 +514,8 @@
     <div id="ruler-readout"></div>
   </div>
 </div>
+<div id="mobile-backdrop"></div>
+<button id="mobile-fab">⚙</button>
 
 <script>
 const state = {
@@ -574,7 +576,7 @@ function luxToColor(lux, maxLux) {
     [0.50, [  0,190, 90]],
     [0.70, [200,230,  0]],
     [0.88, [255,190, 30]],
-    [1.0,  [255,255,255]],
+    [1.0,  [255,255,100]],
   ];
   for (let i = 1; i < stops.length; i++) {
     if (t <= stops[i][0]) {
@@ -583,7 +585,7 @@ function luxToColor(lux, maxLux) {
       return [Math.round(c0[0]+f*(c1[0]-c0[0])), Math.round(c0[1]+f*(c1[1]-c0[1])), Math.round(c0[2]+f*(c1[2]-c0[2]))];
     }
   }
-  return [255,255,255];
+  return [255,255,100];
 }
 
 function cctTint(K) {
@@ -1131,8 +1133,6 @@ function draw() {
     const tint    = cctTint(L.cct);
     const tr      = t => Math.round(t*255);
     const tc      = `rgb(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])})`;
-    const halfRad = (L.beamAngle/2)*Math.PI/180;
-    const coneR   = L.mountH * Math.tan(halfRad) * state.zoom;
 
     if (L.shape === 'linear') {
       const len = L.length || 1.2;
@@ -1140,17 +1140,6 @@ function draw() {
       const [sx,sy] = w2c(L.x - Math.cos(rad)*len/2, L.y - Math.sin(rad)*len/2);
       const [ex,ey] = w2c(L.x + Math.cos(rad)*len/2, L.y + Math.sin(rad)*len/2);
 
-      const nGlow = Math.max(5, Math.ceil(len * state.zoom / 30));
-      for (let i = 0; i < nGlow; i++) {
-        const t  = i / (nGlow - 1);
-        const gx = sx + (ex-sx)*t, gy = sy + (ey-sy)*t;
-        const gr = ctx.createRadialGradient(gx,gy,0,gx,gy,coneR);
-        gr.addColorStop(0,   `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.10)`);
-        gr.addColorStop(0.5, `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.04)`);
-        gr.addColorStop(1,   'rgba(0,0,0,0)');
-        ctx.beginPath(); ctx.arc(gx,gy,coneR,0,Math.PI*2);
-        ctx.fillStyle = gr; ctx.fill();
-      }
       ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey);
       ctx.strokeStyle = tc;
       ctx.lineWidth   = isSel ? 5 : 3;
@@ -1167,13 +1156,6 @@ function draw() {
       ctx.fillText(`L${L.id}`, lx+10, ly+4);
 
     } else {
-      const grad = ctx.createRadialGradient(lx,ly,0,lx,ly,coneR);
-      grad.addColorStop(0,   `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.20)`);
-      grad.addColorStop(0.6, `rgba(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])},0.07)`);
-      grad.addColorStop(1,   'rgba(0,0,0,0)');
-      ctx.beginPath(); ctx.arc(lx,ly,coneR,0,Math.PI*2);
-      ctx.fillStyle = grad; ctx.fill();
-
       ctx.beginPath(); ctx.arc(lx,ly,isSel?9:6,0,Math.PI*2);
       ctx.fillStyle = tc; ctx.fill();
       if (isSel) { ctx.strokeStyle='#f5a623'; ctx.lineWidth=2; ctx.stroke(); }
@@ -2138,7 +2120,5 @@ canvas.addEventListener('touchend', e => {
   }
 }, { passive: false });
 </script>
-<div id="mobile-backdrop"></div>
-<button id="mobile-fab">⚙</button>
 </body>
 </html>
