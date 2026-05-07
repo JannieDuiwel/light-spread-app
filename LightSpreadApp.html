@@ -2018,11 +2018,31 @@ function exportPNG() {
   const mapW = PW - rightPanelW - mapMargin * 2 - 20;
   const mapH = PH - mapTop - mapBot;
 
-  const mScale = Math.min(mapW / rw, mapH / rd);
-  const mOffX  = mapMargin + (mapW - rw * mScale) / 2;
-  const mOffY  = mapTop    + (mapH - rd * mScale) / 2;
+  // bounding box: polygon if defined, else full rectangle
+  let bbMinX = 0, bbMinY = 0, bbMaxX = rw, bbMaxY = rd;
+  if (state.roomPolygon.length >= 3) {
+    bbMinX = Math.min(...state.roomPolygon.map(p => p.x));
+    bbMinY = Math.min(...state.roomPolygon.map(p => p.y));
+    bbMaxX = Math.max(...state.roomPolygon.map(p => p.x));
+    bbMaxY = Math.max(...state.roomPolygon.map(p => p.y));
+    const padX = (bbMaxX - bbMinX) * 0.06;
+    const padY = (bbMaxY - bbMinY) * 0.06;
+    bbMinX = Math.max(0,  bbMinX - padX);
+    bbMinY = Math.max(0,  bbMinY - padY);
+    bbMaxX = Math.min(rw, bbMaxX + padX);
+    bbMaxY = Math.min(rd, bbMaxY + padY);
+  }
+  const bbW = bbMaxX - bbMinX, bbH = bbMaxY - bbMinY;
 
-  function mw2c(wx, wy) { return [wx * mScale + mOffX, wy * mScale + mOffY]; }
+  const mScale = Math.min(mapW / bbW, mapH / bbH);
+  const mOffX  = mapMargin + (mapW - bbW * mScale) / 2;
+  const mOffY  = mapTop    + (mapH - bbH * mScale) / 2;
+
+  function mw2c(wx, wy) { return [(wx - bbMinX) * mScale + mOffX, (wy - bbMinY) * mScale + mOffY]; }
+
+  // canvas corners of the bounding box (used for grid, labels, scale bar)
+  const bx0 = mOffX, by0 = mOffY;
+  const bx1 = mOffX + bbW * mScale, by1 = mOffY + bbH * mScale;
 
   if (state.bgImage) {
     const bgOpacity = (parseFloat(document.getElementById('bgOpacity').value) || 30) / 100;
@@ -2054,23 +2074,45 @@ function exportPNG() {
   renderTargetOverlay(c, mw2c);
   renderEmergencyOverlay(c, mw2c);
 
-  c.strokeStyle = state.openArea ? '#888' : '#333';
-  c.lineWidth   = state.openArea ? 1.5 : 3;
-  state.openArea ? c.setLineDash([10,6]) : c.setLineDash([]);
-  c.strokeRect(mx0, my0, mx1-mx0, my1-my0);
+  if (state.roomPolygon.length >= 3) {
+    c.beginPath();
+    const [fp0x, fp0y] = mw2c(state.roomPolygon[0].x, state.roomPolygon[0].y);
+    c.moveTo(fp0x, fp0y);
+    for (let i = 1; i < state.roomPolygon.length; i++) {
+      const [fpx, fpy] = mw2c(state.roomPolygon[i].x, state.roomPolygon[i].y);
+      c.lineTo(fpx, fpy);
+    }
+    c.closePath();
+    c.strokeStyle = '#333'; c.lineWidth = 3; c.setLineDash([]); c.stroke();
+  } else {
+    c.strokeStyle = state.openArea ? '#888' : '#333';
+    c.lineWidth   = state.openArea ? 1.5 : 3;
+    state.openArea ? c.setLineDash([10,6]) : c.setLineDash([]);
+    c.strokeRect(mx0, my0, mx1-mx0, my1-my0);
+  }
   c.setLineDash([]);
 
-  c.strokeStyle = 'rgba(0,0,0,0.12)'; c.lineWidth = 0.8;
-  const gs = exportGridStep(rw, rd, mapW);
-  for (let gx = 0; gx <= rw+.001; gx += gs) { const [cx] = mw2c(gx,0); c.beginPath(); c.moveTo(cx,my0); c.lineTo(cx,my1); c.stroke(); }
-  for (let gy = 0; gy <= rd+.001; gy += gs) { const [,cy] = mw2c(0,gy); c.beginPath(); c.moveTo(mx0,cy); c.lineTo(mx1,cy); c.stroke(); }
+  for (const w of state.wallSegments) {
+    const [ewx1, ewy1] = mw2c(w.x1, w.y1);
+    const [ewx2, ewy2] = mw2c(w.x2, w.y2);
+    c.beginPath(); c.moveTo(ewx1, ewy1); c.lineTo(ewx2, ewy2);
+    c.strokeStyle = '#555'; c.lineWidth = 3; c.lineCap = 'round'; c.stroke();
+    c.lineCap = 'butt';
+  }
 
-  drawScaleBar(c, mOffX + 10, my1 + 20, mScale, '#444');
+  c.strokeStyle = 'rgba(0,0,0,0.12)'; c.lineWidth = 0.8;
+  const gs = exportGridStep(bbW, bbH, mapW);
+  const gxStart = Math.ceil(bbMinX / gs) * gs;
+  const gyStart = Math.ceil(bbMinY / gs) * gs;
+  for (let gx = gxStart; gx <= bbMaxX+.001; gx += gs) { const [cx] = mw2c(gx, bbMinY); c.beginPath(); c.moveTo(cx,by0); c.lineTo(cx,by1); c.stroke(); }
+  for (let gy = gyStart; gy <= bbMaxY+.001; gy += gs) { const [,cy] = mw2c(bbMinX, gy); c.beginPath(); c.moveTo(bx0,cy); c.lineTo(bx1,cy); c.stroke(); }
+
+  drawScaleBar(c, bx0 + 10, by1 + 20, mScale, '#444');
 
   c.fillStyle = '#444'; c.font = '22px Segoe UI, sans-serif'; c.textAlign = 'center';
-  c.fillText(rw.toFixed(1) + ' m', (mx0+mx1)/2, my1+56);
-  c.save(); c.translate(mx0-40, (my0+my1)/2); c.rotate(-Math.PI/2);
-  c.fillText(rd.toFixed(1) + ' m', 0, 0); c.restore();
+  c.fillText(bbW.toFixed(1) + ' m', (bx0+bx1)/2, by1+56);
+  c.save(); c.translate(bx0-40, (by0+by1)/2); c.rotate(-Math.PI/2);
+  c.fillText(bbH.toFixed(1) + ' m', 0, 0); c.restore();
 
   for (const L of state.lights) {
     const [lx,ly] = mw2c(L.x, L.y);
