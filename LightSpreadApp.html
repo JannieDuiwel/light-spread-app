@@ -595,7 +595,7 @@ function luxToColor(lux, maxLux) {
     [0.50, [  0,190, 90]],
     [0.70, [200,230,  0]],
     [0.88, [255,190, 30]],
-    [1.0,  [255,255,100]],
+    [1.0,  [255,255,255]],
   ];
   for (let i = 1; i < stops.length; i++) {
     if (t <= stops[i][0]) {
@@ -1133,12 +1133,19 @@ function scaleMax() {
 function simulate() {
   if (state.lights.length === 0) { alert('Place at least one light first.'); return; }
   const rw = roomW(), rd = roomD(), wPlane = workPlane();
-  const resolution = Math.max(0.04, Math.min(rw, rd) / 450);
-  const { grid, cols, rows } = computeLuxGrid(rw, rd, resolution, state.lights, wPlane);
+
+  let gridW = rw, gridD = rd;
+  if (state.roomPolygon.length >= 3) {
+    gridW = Math.max(rw, Math.max(...state.roomPolygon.map(p => p.x)) + 1);
+    gridD = Math.max(rd, Math.max(...state.roomPolygon.map(p => p.y)) + 1);
+  }
+
+  const resolution = Math.max(0.04, Math.min(gridW, gridD) / 450);
+  const { grid, cols, rows } = computeLuxGrid(gridW, gridD, resolution, state.lights, wPlane);
 
   if (!state.openArea) {
     const nBounces = parseInt(document.getElementById('reflBounces').value) || 3;
-    const indirect = computeMultiBounce(grid, cols, rows, resolution, rw, rd, wPlane, roomH(), nBounces);
+    const indirect = computeMultiBounce(grid, cols, rows, resolution, gridW, gridD, wPlane, roomH(), nBounces);
     if (indirect) {
       for (let i = 0; i < grid.length; i++) grid[i] += indirect[i];
     }
@@ -1166,7 +1173,7 @@ function simulate() {
   state.minLux  = minLux === Infinity ? 0 : minLux;
   state.avgLux  = avgLux;
   state.rawGrid = grid;
-  state.heatmap = { imgData: null, cols, rows, rw, rd, resolution };
+  state.heatmap = { imgData: null, cols, rows, rw: gridW, rd: gridD, resolution };
   state.simulated = true;
   updateStatsPanel();
 
@@ -1254,7 +1261,9 @@ function draw() {
     off.getContext('2d').putImageData(hm.imgData, 0, 0);
     ctx.imageSmoothingEnabled  = true;
     ctx.imageSmoothingQuality  = 'high';
-    ctx.drawImage(off, x0, y0, x1-x0, y1-y0);
+    const [hx0, hy0] = w2c(0, 0);
+    const [hx1, hy1] = w2c(hm.rw, hm.rd);
+    ctx.drawImage(off, hx0, hy0, hx1-hx0, hy1-hy0);
   }
 
   drawTargetOverlay();
@@ -2362,6 +2371,10 @@ canvas.addEventListener('touchstart', e => {
   if (state.mode === 'place') return;
   if (state.mode === 'pin')   return;
   if (state.mode === 'array') return;
+  if (state.mode === 'draw-room' || state.mode === 'draw-wall') {
+    state.panning = { startX: t.clientX, startY: t.clientY, origPanX: state.panX, origPanY: state.panY };
+    return;
+  }
 
   for (const p of state.pins) {
     const [px, py] = w2c(p.x, p.y);
@@ -2401,6 +2414,7 @@ canvas.addEventListener('touchmove', e => {
     const rect = canvas.getBoundingClientRect();
     const cx = t.clientX - rect.left, cy = t.clientY - rect.top;
     const [wx, wy] = c2w(cx, cy);
+    state.mouseWorld.x = wx; state.mouseWorld.y = wy;
     if (Math.hypot(cx - ts.startCX, cy - ts.startCY) > 6) ts.moved = true;
     if (state.dragging) {
       const d = state.dragging;
@@ -2431,11 +2445,31 @@ canvas.addEventListener('touchend', e => {
   if (!ts.moved && !ts.pinching && e.changedTouches.length > 0) {
     const t = e.changedTouches[0];
     const rect = canvas.getBoundingClientRect();
-    const [wx, wy] = c2w(t.clientX - rect.left, t.clientY - rect.top);
+    const tcx = t.clientX - rect.left, tcy = t.clientY - rect.top;
+    const [wx, wy] = c2w(tcx, tcy);
     if (state.mode === 'place') {
       addLight(Math.max(0, Math.min(roomW(), wx)), Math.max(0, Math.min(roomD(), wy)));
     } else if (state.mode === 'pin' && state.simulated) {
       addPin(Math.max(0, Math.min(roomW(), wx)), Math.max(0, Math.min(roomD(), wy)));
+    } else if (state.mode === 'draw-room') {
+      const pt = { x: snap(wx), y: snap(wy) };
+      if (state.roomPolygon.length >= 3) {
+        const [fx, fy] = w2c(state.roomPolygon[0].x, state.roomPolygon[0].y);
+        if (Math.hypot(tcx - fx, tcy - fy) < 24) { closeRoomPolygon(); return; }
+      }
+      state.roomPolygon.push(pt);
+      invalidateSim(); refreshWallList(); draw();
+    } else if (state.mode === 'draw-wall') {
+      const pt = { x: snap(wx), y: snap(wy) };
+      if (!state.drawingWall) {
+        state.drawingWall = pt;
+      } else {
+        if (Math.hypot(pt.x - state.drawingWall.x, pt.y - state.drawingWall.y) > 0.01) {
+          addWallSegment(state.drawingWall.x, state.drawingWall.y, pt.x, pt.y);
+        }
+        state.drawingWall = null;
+      }
+      draw();
     }
   }
   if (e.touches.length === 0) {
