@@ -841,21 +841,31 @@ function downsampleGrid(grid, cols, rows, res, iCols, iRows, indRes) {
   return out;
 }
 
-function lambertianTransfer(src, iCols, iRows, indRes, H, rho) {
-  const dst = new Float64Array(iCols * iRows);
-  const H2  = H * H;
-  const dA  = indRes * indRes;
+function lambertianTransfer(src, iCols, iRows, indRes, H, rho, walls) {
+  const dst     = new Float64Array(iCols * iRows);
+  const H2      = H * H;
+  const dA      = indRes * indRes;
+  const hasWalls = walls && walls.length > 0;
   for (let ir = 0; ir < iRows; ir++) {
     const cy = (ir + 0.5) * indRes;
     for (let ic = 0; ic < iCols; ic++) {
       const cx = (ic + 0.5) * indRes;
       let E = 0;
       for (let jr = 0; jr < iRows; jr++) {
-        const dy2 = (cy - (jr + 0.5) * indRes) ** 2;
+        const sy   = (jr + 0.5) * indRes;
+        const dy2  = (cy - sy) ** 2;
         for (let jc = 0; jc < iCols; jc++) {
           const v = src[jr * iCols + jc];
           if (v <= 0) continue;
-          const dx2 = (cx - (jc + 0.5) * indRes) ** 2;
+          const sx = (jc + 0.5) * indRes;
+          if (hasWalls) {
+            let blocked = false;
+            for (const w of walls) {
+              if (segmentsIntersect(cx, cy, sx, sy, w.x1, w.y1, w.x2, w.y2)) { blocked = true; break; }
+            }
+            if (blocked) continue;
+          }
+          const dx2 = (cx - sx) ** 2;
           const d2  = dx2 + dy2 + H2;
           E += v * H2 / (Math.PI * d2 * d2) * dA;
         }
@@ -899,12 +909,13 @@ function computeMultiBounce(directGrid, cols, rows, resolution, rw, rd, wPlane, 
 
   const totalCoarse = new Float64Array(iCols * iRows);
   let curFloor = downsampleGrid(directGrid, cols, rows, resolution, iCols, iRows, indRes);
+  const occluders = getOccluderWalls();
 
   const aFloor = rw * rd;
   const aWalls = 2 * (rw + rd) * rh;
 
   for (let b = 0; b < nBounces; b++) {
-    const ceilLux = lambertianTransfer(curFloor, iCols, iRows, indRes, H, rf);
+    const ceilLux = lambertianTransfer(curFloor, iCols, iRows, indRes, H, rf, occluders);
 
     let avgFloor = 0;
     for (let i = 0; i < curFloor.length; i++) avgFloor += curFloor[i];
@@ -912,7 +923,7 @@ function computeMultiBounce(directGrid, cols, rows, resolution, rw, rd, wPlane, 
     const wallBoost = avgFloor * rf * rww * aWalls / (aFloor + aWalls);
     for (let i = 0; i < ceilLux.length; i++) ceilLux[i] += wallBoost;
 
-    const newFloor = lambertianTransfer(ceilLux, iCols, iRows, indRes, H, rc);
+    const newFloor = lambertianTransfer(ceilLux, iCols, iRows, indRes, H, rc, occluders);
     for (let i = 0; i < totalCoarse.length; i++) totalCoarse[i] += newFloor[i];
     curFloor = newFloor;
   }
