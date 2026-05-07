@@ -357,6 +357,16 @@
     <label>Bounces <input type="number" id="reflBounces" value="3" min="1" max="8" step="1"> <span>passes</span></label>
   </div>
 
+  <div class="section" id="geometry-section">
+    <h2>Room Geometry</h2>
+    <div style="display:flex;gap:4px;margin-bottom:6px;">
+      <button class="btn-secondary" style="flex:1;margin:0;font-size:10px;" onclick="clearRoomPolygon()">Clear Polygon</button>
+      <button class="btn-secondary" id="btn-close-poly" style="flex:1;margin:0;font-size:10px;display:none;" onclick="closeRoomPolygon()">Close Shape</button>
+    </div>
+    <div id="poly-info" style="font-size:11px;color:#666;margin-bottom:6px;">No polygon — using rectangle</div>
+    <div id="wall-list" style="font-size:11px;color:#555;">No internal walls</div>
+  </div>
+
   <div class="section">
     <h2 id="spec-title">Light Spec <em id="spec-editing"></em></h2>
 
@@ -486,6 +496,9 @@
     <div class="toolbar-sep"></div>
     <button class="tool-btn"        id="tool-ruler">Ruler</button>
     <div class="toolbar-sep"></div>
+    <button class="tool-btn"        id="tool-draw-room">Draw Room</button>
+    <button class="tool-btn"        id="tool-draw-wall">Add Wall</button>
+    <div class="toolbar-sep"></div>
     <span id="cursor-info">Hover canvas for position</span>
   </div>
   <div id="canvas-wrap">
@@ -539,6 +552,11 @@ const state = {
   rulerDragging: false,
   bgImage: null,
   arrayPreview: null,
+  roomPolygon: [],
+  wallSegments: [],
+  nextWallId: 1,
+  drawingWall: null,
+  mouseWorld: { x: 0, y: 0 },
   get openArea() { return document.getElementById('openArea').checked; },
 };
 
@@ -640,10 +658,41 @@ function computeNorm(beamAngle, distrib) {
   return integral || 1e-9;
 }
 
+function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
+  const d1x = bx-ax, d1y = by-ay, d2x = dx-cx, d2y = dy-cy;
+  const denom = d1x*d2y - d1y*d2x;
+  if (Math.abs(denom) < 1e-10) return false;
+  const t = ((cx-ax)*d2y - (cy-ay)*d2x) / denom;
+  const u = ((cx-ax)*d1y - (cy-ay)*d1x) / denom;
+  return t > 1e-6 && t < 1-1e-6 && u > 1e-6 && u < 1-1e-6;
+}
+
+function pointInPolygon(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length-1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if ((yi > y) !== (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi) inside = !inside;
+  }
+  return inside;
+}
+
+function getOccluderWalls() {
+  const walls = [];
+  if (state.roomPolygon.length >= 3) {
+    for (let i = 0; i < state.roomPolygon.length; i++) {
+      const a = state.roomPolygon[i], b = state.roomPolygon[(i+1) % state.roomPolygon.length];
+      walls.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    }
+  }
+  for (const w of state.wallSegments) walls.push(w);
+  return walls;
+}
+
 function computeLuxGrid(rw, rd, resolution, lights, wPlane) {
   const cols = Math.ceil(rw / resolution);
   const rows = Math.ceil(rd / resolution);
   const grid = new Float32Array(cols * rows);
+  const occluders = getOccluderWalls();
 
   for (const L of lights) {
     const dz = L.mountH - wPlane;
@@ -665,6 +714,13 @@ function computeLuxGrid(rw, rd, resolution, lights, wPlane) {
         for (let c = 0; c < cols; c++) {
           const px = (c + 0.5) * resolution;
           const dx = px - s.x;
+          if (occluders.length > 0) {
+            let blocked = false;
+            for (const w of occluders) {
+              if (segmentsIntersect(s.x, s.y, px, py, w.x1, w.y1, w.x2, w.y2)) { blocked = true; break; }
+            }
+            if (blocked) continue;
+          }
           const d2     = dx*dx + dy*dy;
           const d3sq   = d2 + dz*dz;
           const d3     = Math.sqrt(d3sq);
@@ -699,6 +755,49 @@ function applyReflPreset(ceil, walls, floor) {
   document.getElementById('reflCeil').value  = ceil;
   document.getElementById('reflWalls').value = walls;
   document.getElementById('reflFloor').value = floor;
+}
+
+function clearRoomPolygon() {
+  state.roomPolygon = [];
+  if (state.mode === 'draw-room') setMode('select');
+  invalidateSim(); refreshWallList(); draw();
+}
+
+function closeRoomPolygon() {
+  if (state.roomPolygon.length >= 3) {
+    setMode('select');
+    invalidateSim(); refreshWallList(); draw();
+  }
+}
+
+function addWallSegment(x1, y1, x2, y2) {
+  state.wallSegments.push({ id: state.nextWallId++, x1, y1, x2, y2 });
+  invalidateSim(); refreshWallList();
+}
+
+function removeWall(id) {
+  state.wallSegments = state.wallSegments.filter(w => w.id !== id);
+  invalidateSim(); refreshWallList(); draw();
+}
+
+function refreshWallList() {
+  const el = document.getElementById('wall-list');
+  const pi = document.getElementById('poly-info');
+  const cp = document.getElementById('btn-close-poly');
+  if (!el) return;
+  const n = state.roomPolygon.length;
+  pi.textContent = n >= 3 ? `Polygon: ${n} vertices`
+    : n > 0 ? `Drawing… ${n} vertices (need ≥ 3)`
+    : 'No polygon — using rectangle';
+  cp.style.display = (state.mode === 'draw-room' && n >= 3) ? 'inline-block' : 'none';
+  el.innerHTML = state.wallSegments.length === 0
+    ? '<span style="color:#555;">No internal walls</span>'
+    : state.wallSegments.map(w =>
+        `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+          <span style="color:#888;">W${w.id} (${w.x1.toFixed(1)},${w.y1.toFixed(1)})→(${w.x2.toFixed(1)},${w.y2.toFixed(1)})</span>
+          <button onclick="removeWall(${w.id})" style="background:none;border:none;color:#f55;cursor:pointer;font-size:13px;padding:0 4px;">✕</button>
+        </div>`
+      ).join('');
 }
 
 function downsampleGrid(grid, cols, rows, res, iCols, iRows, indRes) {
@@ -930,6 +1029,7 @@ function renderEmergencyOverlay(canvasCtx, coordFn) {
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const lux = grid[row * cols + col];
+      if (lux < 0) continue;
       canvasCtx.fillStyle = lux >= threshold ? 'rgba(0,200,80,0.28)' : 'rgba(220,30,30,0.40)';
       const [px,  py]  = coordFn(col * resolution,       row * resolution);
       const [px2, py2] = coordFn((col + 1) * resolution, (row + 1) * resolution);
@@ -982,7 +1082,8 @@ function gridLux(wx, wy) {
   const col = Math.floor(wx / hm.resolution);
   const row = Math.floor(wy / hm.resolution);
   if (col < 0 || col >= hm.cols || row < 0 || row >= hm.rows) return null;
-  return state.rawGrid[row * hm.cols + col];
+  const v = state.rawGrid[row * hm.cols + col];
+  return v < 0 ? null : v;
 }
 
 function scaleMax() {
@@ -1006,13 +1107,24 @@ function simulate() {
     }
   }
 
-  let maxLux = 0, minLux = Infinity, sumLux = 0;
+  if (state.roomPolygon.length >= 3) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (!pointInPolygon((c+0.5)*resolution, (r+0.5)*resolution, state.roomPolygon))
+          grid[r*cols+c] = -1;
+      }
+    }
+  }
+
+  let maxLux = 0, minLux = Infinity, sumLux = 0, countLux = 0;
   for (let i = 0; i < grid.length; i++) {
+    if (grid[i] < 0) continue;
     maxLux = Math.max(maxLux, grid[i]);
     minLux = Math.min(minLux, grid[i]);
     sumLux += grid[i];
+    countLux++;
   }
-  const avgLux = sumLux / grid.length;
+  const avgLux = countLux > 0 ? sumLux / countLux : 0;
   state.maxLux  = maxLux;
   state.minLux  = minLux === Infinity ? 0 : minLux;
   state.avgLux  = avgLux;
@@ -1039,8 +1151,10 @@ function renderHeatmap() {
   const imgData = new ImageData(cols, rows);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const [R,G,B] = luxToColor(state.rawGrid[r*cols+c], sMax);
+      const lux = state.rawGrid[r*cols+c];
       const idx = (r*cols+c)*4;
+      if (lux < 0) { imgData.data[idx+3] = 0; continue; }
+      const [R,G,B] = luxToColor(lux, sMax);
       imgData.data[idx]=R; imgData.data[idx+1]=G; imgData.data[idx+2]=B; imgData.data[idx+3]=210;
     }
   }
@@ -1109,13 +1223,15 @@ function draw() {
   drawTargetOverlay();
   drawEmergencyOverlay();
 
-  if (!state.openArea) {
-    ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.setLineDash([]);
-  } else {
-    ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.setLineDash([6,4]);
+  if (state.roomPolygon.length < 3) {
+    if (!state.openArea) {
+      ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.setLineDash([]);
+    } else {
+      ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.setLineDash([6,4]);
+    }
+    ctx.strokeRect(x0, y0, x1-x0, y1-y0);
+    ctx.setLineDash([]);
   }
-  ctx.strokeRect(x0, y0, x1-x0, y1-y0);
-  ctx.setLineDash([]);
 
   ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.lineWidth = 0.5;
   const gs = gridStep();
@@ -1206,6 +1322,62 @@ function draw() {
       ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI*2);
       ctx.fill(); ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  if (state.roomPolygon.length > 0) {
+    ctx.save();
+    ctx.strokeStyle = '#4af';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    const [p0x, p0y] = w2c(state.roomPolygon[0].x, state.roomPolygon[0].y);
+    ctx.beginPath(); ctx.moveTo(p0x, p0y);
+    for (let i = 1; i < state.roomPolygon.length; i++) {
+      const [vx, vy] = w2c(state.roomPolygon[i].x, state.roomPolygon[i].y);
+      ctx.lineTo(vx, vy);
+    }
+    if (state.mode !== 'draw-room') ctx.closePath();
+    ctx.stroke();
+    if (state.mode === 'draw-room') {
+      const last = state.roomPolygon[state.roomPolygon.length - 1];
+      const [lx2, ly2] = w2c(last.x, last.y);
+      const [mx, my] = w2c(state.mouseWorld.x, state.mouseWorld.y);
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(lx2, ly2); ctx.lineTo(mx, my); ctx.stroke();
+      ctx.setLineDash([]);
+      if (state.roomPolygon.length >= 3) {
+        ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(p0x, p0y, 9, 0, Math.PI*2); ctx.stroke();
+      }
+    }
+    ctx.fillStyle = '#4af';
+    for (const v of state.roomPolygon) {
+      const [vx, vy] = w2c(v.x, v.y);
+      ctx.beginPath(); ctx.arc(vx, vy, 4, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  for (const w of state.wallSegments) {
+    const [wx1, wy1] = w2c(w.x1, w.y1);
+    const [wx2, wy2] = w2c(w.x2, w.y2);
+    ctx.save();
+    ctx.strokeStyle = '#f84'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(wx1, wy1); ctx.lineTo(wx2, wy2); ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.restore();
+  }
+
+  if (state.mode === 'draw-wall' && state.drawingWall) {
+    const [sx, sy] = w2c(state.drawingWall.x, state.drawingWall.y);
+    const [mx, my] = w2c(state.mouseWorld.x, state.mouseWorld.y);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,136,68,0.7)'; ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(mx, my); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineCap = 'butt';
+    ctx.fillStyle = '#f84';
+    ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
 }
@@ -1442,6 +1614,7 @@ function invalidateSim() {
 canvas.addEventListener('mousemove', e => {
   const rect = canvas.getBoundingClientRect();
   const [wx, wy] = c2w(e.clientX - rect.left, e.clientY - rect.top);
+  state.mouseWorld.x = wx; state.mouseWorld.y = wy;
   document.getElementById('cursor-info').textContent = `x: ${wx.toFixed(2)} m  y: ${wy.toFixed(2)} m`;
 
   const luxEl = document.getElementById('lux-cursor');
@@ -1466,6 +1639,8 @@ canvas.addEventListener('mousemove', e => {
     state.arrayPreview = buildArrayPositions(wx, wy);
     draw(); return;
   }
+
+  if (state.mode === 'draw-room' || state.mode === 'draw-wall') { draw(); return; }
 
   if (state.dragging) {
     const d  = state.dragging;
@@ -1514,6 +1689,30 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
 
+  if (state.mode === 'draw-room') {
+    const pt = { x: snap(wx), y: snap(wy) };
+    if (state.roomPolygon.length >= 3) {
+      const [fx, fy] = w2c(state.roomPolygon[0].x, state.roomPolygon[0].y);
+      if (Math.hypot(cx - fx, cy - fy) < 15) { closeRoomPolygon(); return; }
+    }
+    state.roomPolygon.push(pt);
+    invalidateSim(); refreshWallList(); draw();
+    return;
+  }
+
+  if (state.mode === 'draw-wall') {
+    const pt = { x: snap(wx), y: snap(wy) };
+    if (!state.drawingWall) {
+      state.drawingWall = pt;
+    } else {
+      if (Math.hypot(pt.x - state.drawingWall.x, pt.y - state.drawingWall.y) > 0.01) {
+        addWallSegment(state.drawingWall.x, state.drawingWall.y, pt.x, pt.y);
+      }
+      state.drawingWall = null;
+    }
+    draw(); return;
+  }
+
   if (state.mode === 'array') {
     const positions = buildArrayPositions(wx, wy);
     for (const [ax, ay] of positions) {
@@ -1552,7 +1751,14 @@ canvas.addEventListener('mouseup', () => {
   if (state.rulerDragging) { state.rulerDragging = false; draw(); }
 });
 canvas.addEventListener('mouseleave', () => { state.dragging = null; state.panning = null; });
-canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (state.mode === 'draw-room') {
+    if (state.roomPolygon.length > 0) { state.roomPolygon.pop(); refreshWallList(); draw(); }
+  } else if (state.mode === 'draw-wall') {
+    state.drawingWall = null; draw();
+  }
+});
 
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
@@ -1569,19 +1775,26 @@ canvas.addEventListener('wheel', e => {
 function setMode(m) {
   state.mode = m;
   if (m !== 'array') state.arrayPreview = null;
-  document.getElementById('tool-select').classList.toggle('active', m === 'select');
-  document.getElementById('tool-place').classList.toggle('active',  m === 'place');
-  document.getElementById('tool-pin').classList.toggle('active',    m === 'pin');
-  document.getElementById('tool-ruler').classList.toggle('active',  m === 'ruler');
-  wrap.className = m === 'select' ? 'move-mode' : m === 'pin' ? 'pin-mode' : m === 'ruler' ? 'pin-mode' : '';
+  if (m !== 'draw-wall') state.drawingWall = null;
+  document.getElementById('tool-select').classList.toggle('active',    m === 'select');
+  document.getElementById('tool-place').classList.toggle('active',     m === 'place');
+  document.getElementById('tool-pin').classList.toggle('active',       m === 'pin');
+  document.getElementById('tool-ruler').classList.toggle('active',     m === 'ruler');
+  document.getElementById('tool-draw-room').classList.toggle('active', m === 'draw-room');
+  document.getElementById('tool-draw-wall').classList.toggle('active', m === 'draw-wall');
+  const crosshair = m === 'pin' || m === 'ruler' || m === 'draw-room' || m === 'draw-wall';
+  wrap.className = m === 'select' ? 'move-mode' : crosshair ? 'pin-mode' : '';
   if (m !== 'ruler') { state.ruler = null; document.getElementById('ruler-readout').style.display = 'none'; }
+  refreshWallList();
   draw();
 }
 
-document.getElementById('tool-select').addEventListener('click', () => setMode('select'));
-document.getElementById('tool-place').addEventListener('click',  () => setMode('place'));
-document.getElementById('tool-pin').addEventListener('click',    () => setMode('pin'));
-document.getElementById('tool-ruler').addEventListener('click',  () => setMode('ruler'));
+document.getElementById('tool-select').addEventListener('click',    () => setMode('select'));
+document.getElementById('tool-place').addEventListener('click',     () => setMode('place'));
+document.getElementById('tool-pin').addEventListener('click',       () => setMode('pin'));
+document.getElementById('tool-ruler').addEventListener('click',     () => setMode('ruler'));
+document.getElementById('tool-draw-room').addEventListener('click', () => setMode('draw-room'));
+document.getElementById('tool-draw-wall').addEventListener('click', () => setMode('draw-wall'));
 
 document.getElementById('btn-add-mode').addEventListener('click',  () => setMode('place'));
 document.getElementById('btn-pin-mode').addEventListener('click',  () => setMode('pin'));
@@ -1695,7 +1908,13 @@ document.addEventListener('keydown', e => {
   const active = document.activeElement;
   const typing = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA');
 
-  if (e.key === 'Escape') { setMode('select'); document.getElementById('array-panel').style.display = 'none'; }
+  if (e.key === 'Escape') {
+    if (state.mode === 'draw-room' && state.roomPolygon.length > 0) {
+      state.roomPolygon.pop(); refreshWallList(); draw();
+    } else {
+      setMode('select'); document.getElementById('array-panel').style.display = 'none';
+    }
+  }
   if (!typing) {
     if (e.key === 'p' || e.key === 'P') setMode('place');
     if (e.key === 'm' || e.key === 'M') setMode('pin');
