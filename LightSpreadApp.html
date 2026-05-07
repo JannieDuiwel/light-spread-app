@@ -556,6 +556,7 @@ const state = {
   wallSegments: [],
   nextWallId: 1,
   drawingWall: null,
+  selectedWallId: null,
   mouseWorld: { x: 0, y: 0 },
   get openArea() { return document.getElementById('openArea').checked; },
 };
@@ -656,6 +657,31 @@ function computeNorm(beamAngle, distrib) {
                 * (halfBeam / steps);
   }
   return integral || 1e-9;
+}
+
+function distToSegmentPx(cx, cy, ax, ay, bx, by) {
+  const dx = bx-ax, dy = by-ay;
+  const len2 = dx*dx + dy*dy;
+  if (len2 === 0) return Math.hypot(cx-ax, cy-ay);
+  const t = Math.max(0, Math.min(1, ((cx-ax)*dx + (cy-ay)*dy) / len2));
+  return Math.hypot(cx - (ax+t*dx), cy - (ay+t*dy));
+}
+
+function drawMeasureLabel(ctx, x1, y1, x2, y2, wx1, wy1, wx2, wy2) {
+  const len = Math.hypot(wx2-wx1, wy2-wy1);
+  if (len < 0.05) return;
+  const angleDeg = Math.atan2(wy2-wy1, wx2-wx1) * 180 / Math.PI;
+  const label = `${len.toFixed(2)} m  ${((angleDeg % 360 + 360) % 360).toFixed(1)}°`;
+  const mx = (x1+x2)/2, my = (y1+y2)/2;
+  ctx.save();
+  ctx.font = '11px Segoe UI,sans-serif';
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.beginPath(); ctx.roundRect(mx - tw/2 - 4, my - 13, tw + 8, 16, 3); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, mx, my - 5);
+  ctx.textBaseline = 'alphabetic';
+  ctx.restore();
 }
 
 function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
@@ -1223,7 +1249,7 @@ function draw() {
   drawTargetOverlay();
   drawEmergencyOverlay();
 
-  if (state.roomPolygon.length < 3) {
+  if (state.roomPolygon.length === 0 && state.mode !== 'draw-room') {
     if (!state.openArea) {
       ctx.strokeStyle = '#ccc'; ctx.lineWidth = 2; ctx.setLineDash([]);
     } else {
@@ -1339,12 +1365,18 @@ function draw() {
     if (state.mode !== 'draw-room') ctx.closePath();
     ctx.stroke();
     if (state.mode === 'draw-room') {
+      for (let i = 1; i < state.roomPolygon.length; i++) {
+        const [ax, ay] = w2c(state.roomPolygon[i-1].x, state.roomPolygon[i-1].y);
+        const [bx, by] = w2c(state.roomPolygon[i].x,   state.roomPolygon[i].y);
+        drawMeasureLabel(ctx, ax, ay, bx, by, state.roomPolygon[i-1].x, state.roomPolygon[i-1].y, state.roomPolygon[i].x, state.roomPolygon[i].y);
+      }
       const last = state.roomPolygon[state.roomPolygon.length - 1];
       const [lx2, ly2] = w2c(last.x, last.y);
       const [mx, my] = w2c(state.mouseWorld.x, state.mouseWorld.y);
       ctx.setLineDash([4, 4]);
       ctx.beginPath(); ctx.moveTo(lx2, ly2); ctx.lineTo(mx, my); ctx.stroke();
       ctx.setLineDash([]);
+      drawMeasureLabel(ctx, lx2, ly2, mx, my, last.x, last.y, state.mouseWorld.x, state.mouseWorld.y);
       if (state.roomPolygon.length >= 3) {
         ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(p0x, p0y, 9, 0, Math.PI*2); ctx.stroke();
@@ -1361,10 +1393,14 @@ function draw() {
   for (const w of state.wallSegments) {
     const [wx1, wy1] = w2c(w.x1, w.y1);
     const [wx2, wy2] = w2c(w.x2, w.y2);
+    const isSel = w.id === state.selectedWallId;
     ctx.save();
-    ctx.strokeStyle = '#f84'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.strokeStyle = isSel ? '#ff0' : '#f84';
+    ctx.lineWidth = isSel ? 4 : 3;
+    ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(wx1, wy1); ctx.lineTo(wx2, wy2); ctx.stroke();
     ctx.lineCap = 'butt';
+    if (isSel) drawMeasureLabel(ctx, wx1, wy1, wx2, wy2, w.x1, w.y1, w.x2, w.y2);
     ctx.restore();
   }
 
@@ -1378,6 +1414,7 @@ function draw() {
     ctx.setLineDash([]); ctx.lineCap = 'butt';
     ctx.fillStyle = '#f84';
     ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI*2); ctx.fill();
+    drawMeasureLabel(ctx, sx, sy, mx, my, state.drawingWall.x, state.drawingWall.y, state.mouseWorld.x, state.mouseWorld.y);
     ctx.restore();
   }
 }
@@ -1737,9 +1774,22 @@ canvas.addEventListener('mousedown', e => {
       return;
     }
   }
+  for (const w of state.wallSegments) {
+    const [wx1, wy1] = w2c(w.x1, w.y1);
+    const [wx2, wy2] = w2c(w.x2, w.y2);
+    if (distToSegmentPx(cx, cy, wx1, wy1, wx2, wy2) < 8) {
+      state.selectedWallId  = w.id;
+      state.selectedLightId = null;
+      state.selectedPinId   = null;
+      document.getElementById('spec-editing').textContent = '';
+      refreshLightList(); refreshPinList(); draw();
+      return;
+    }
+  }
   state.panning = { startX: e.clientX, startY: e.clientY, origPanX: state.panX, origPanY: state.panY };
   state.selectedLightId = null;
   state.selectedPinId   = null;
+  state.selectedWallId  = null;
   document.getElementById('spec-editing').textContent = '';
   refreshLightList();
   refreshPinList();
@@ -1776,6 +1826,7 @@ function setMode(m) {
   state.mode = m;
   if (m !== 'array') state.arrayPreview = null;
   if (m !== 'draw-wall') state.drawingWall = null;
+  if (m !== 'select') state.selectedWallId = null;
   document.getElementById('tool-select').classList.toggle('active',    m === 'select');
   document.getElementById('tool-place').classList.toggle('active',     m === 'place');
   document.getElementById('tool-pin').classList.toggle('active',       m === 'pin');
@@ -1920,8 +1971,9 @@ document.addEventListener('keydown', e => {
     if (e.key === 'm' || e.key === 'M') setMode('pin');
     if (e.key === 'Enter') simulate();
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (state.selectedLightId !== null) removeLight(state.selectedLightId);
-      else if (state.selectedPinId !== null) removePin(state.selectedPinId);
+      if (state.selectedWallId  !== null) removeWall(state.selectedWallId);
+      else if (state.selectedLightId !== null) removeLight(state.selectedLightId);
+      else if (state.selectedPinId   !== null) removePin(state.selectedPinId);
     }
   }
 });
