@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Light Dispersion Simulator</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -220,11 +220,94 @@
     padding: 10px; margin-top: 8px; display: none;
   }
   #array-panel label { margin-bottom: 4px; }
+
+  #mobile-handle {
+    display: none;
+    width: 36px; height: 4px;
+    background: #3a3a3a; border-radius: 2px;
+    margin: 12px auto 4px; flex-shrink: 0;
+  }
+
+  #mobile-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    z-index: 99;
+    transition: opacity 0.3s;
+    opacity: 0; pointer-events: none;
+  }
+
+  #mobile-fab {
+    display: none;
+    position: fixed; bottom: 24px; right: 20px;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: #f5a623; color: #111;
+    font-size: 20px; font-weight: 700;
+    border: none; cursor: pointer; z-index: 200;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    align-items: center; justify-content: center;
+    margin: 0; padding: 0; width: 52px;
+  }
+
+  @media (max-width: 768px) {
+    body { overflow: hidden; }
+
+    #mobile-handle { display: block; }
+
+    #mobile-backdrop { display: block; }
+    #mobile-backdrop.active { opacity: 1; pointer-events: auto; }
+
+    #mobile-fab { display: flex; }
+
+    #sidebar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      width: 100%; min-width: unset;
+      max-height: 78vh;
+      border-right: none;
+      border-top: 1px solid #333;
+      border-radius: 16px 16px 0 0;
+      transform: translateY(100%);
+      transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 150;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      box-shadow: 0 -6px 24px rgba(0,0,0,0.45);
+    }
+    #sidebar.mobile-open { transform: translateY(0); }
+    #sidebar h1 { display: none; }
+
+    #main { width: 100%; height: 100vh; }
+
+    #toolbar {
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      -webkit-overflow-scrolling: touch;
+      padding: 6px 10px;
+      gap: 6px;
+    }
+    #toolbar .tool-btn { white-space: nowrap; padding: 6px 10px; }
+    #cursor-info { display: none; }
+
+    input[type="number"],
+    input[type="text"],
+    select { font-size: 16px !important; }
+
+    button { min-height: 38px; }
+    .tool-btn { min-height: 34px; }
+    input[type="number"] { width: 86px; padding: 5px 8px; }
+
+    #lux-cursor { top: 52px; }
+    #stats-panel { bottom: 80px; }
+    #legend { bottom: 80px; }
+  }
 </style>
 </head>
 <body>
 
 <div id="sidebar">
+  <div id="mobile-handle"></div>
   <h1>Light Simulator</h1>
 
   <div class="section">
@@ -1520,7 +1603,10 @@ document.getElementById('tool-ruler').addEventListener('click',  () => setMode('
 
 document.getElementById('btn-add-mode').addEventListener('click',  () => setMode('place'));
 document.getElementById('btn-pin-mode').addEventListener('click',  () => setMode('pin'));
-document.getElementById('btn-simulate').addEventListener('click',  simulate);
+document.getElementById('btn-simulate').addEventListener('click', () => {
+  simulate();
+  if (isMobile()) setTimeout(closeMobilePanel, 120);
+});
 
 document.getElementById('btn-array-toggle').addEventListener('click', () => {
   const panel = document.getElementById('array-panel');
@@ -1916,6 +2002,143 @@ updateLegendBar();
 resize();
 fitView();
 draw();
+
+// ── MOBILE PANEL
+
+function isMobile() { return window.innerWidth <= 768; }
+
+function openMobilePanel() {
+  document.getElementById('sidebar').classList.add('mobile-open');
+  document.getElementById('mobile-backdrop').classList.add('active');
+  document.getElementById('mobile-fab').textContent = '✕';
+}
+
+function closeMobilePanel() {
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('mobile-backdrop').classList.remove('active');
+  document.getElementById('mobile-fab').textContent = '⚙';
+}
+
+document.getElementById('mobile-fab').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.contains('mobile-open')
+    ? closeMobilePanel() : openMobilePanel();
+});
+
+document.getElementById('mobile-backdrop').addEventListener('click', closeMobilePanel);
+
+// ── TOUCH EVENTS
+
+const ts = { pinching: false, lastDist: 0, lastMidX: 0, lastMidY: 0, startCX: 0, startCY: 0, moved: false };
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length >= 2) {
+    ts.pinching = true;
+    state.dragging = null; state.panning = null;
+    const t0 = e.touches[0], t1 = e.touches[1];
+    ts.lastDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    ts.lastMidX = (t0.clientX + t1.clientX) / 2;
+    ts.lastMidY = (t0.clientY + t1.clientY) / 2;
+    return;
+  }
+  ts.pinching = false;
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const cx = t.clientX - rect.left, cy = t.clientY - rect.top;
+  const [wx, wy] = c2w(cx, cy);
+  ts.startCX = cx; ts.startCY = cy; ts.moved = false;
+
+  if (state.mode === 'ruler') {
+    state.ruler = { x1: wx, y1: wy, x2: wx, y2: wy };
+    state.rulerDragging = true;
+    return;
+  }
+  if (state.mode === 'place') return;
+  if (state.mode === 'pin')   return;
+  if (state.mode === 'array') return;
+
+  for (const p of state.pins) {
+    const [px, py] = w2c(p.x, p.y);
+    if (Math.hypot(cx - px, cy - (py - 8)) < 20) { selectPin(p.id); return; }
+  }
+  for (const L of state.lights) {
+    const [lx, ly] = w2c(L.x, L.y);
+    if (Math.hypot(cx - lx, cy - ly) < 20) {
+      selectLight(L.id);
+      state.dragging = { id: L.id, startWX: wx, startWY: wy, origX: L.x, origY: L.y };
+      return;
+    }
+  }
+  state.panning = { startX: t.clientX, startY: t.clientY, origPanX: state.panX, origPanY: state.panY };
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length >= 2) {
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const mx = (t0.clientX + t1.clientX) / 2;
+    const my = (t0.clientY + t1.clientY) / 2;
+    const rect = canvas.getBoundingClientRect();
+    const cx = mx - rect.left, cy = my - rect.top;
+    const factor = ts.lastDist > 0 ? dist / ts.lastDist : 1;
+    state.panX = cx - (cx - state.panX) * factor;
+    state.panY = cy - (cy - state.panY) * factor;
+    state.zoom = Math.max(4, Math.min(600, state.zoom * factor));
+    state.panX += mx - ts.lastMidX;
+    state.panY += my - ts.lastMidY;
+    ts.lastDist = dist; ts.lastMidX = mx; ts.lastMidY = my;
+    draw(); return;
+  }
+  if (e.touches.length === 1 && !ts.pinching) {
+    const t = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const cx = t.clientX - rect.left, cy = t.clientY - rect.top;
+    const [wx, wy] = c2w(cx, cy);
+    if (Math.hypot(cx - ts.startCX, cy - ts.startCY) > 6) ts.moved = true;
+    if (state.dragging) {
+      const d = state.dragging;
+      const L = state.lights.find(l => l.id === d.id);
+      if (L) {
+        L.x = snap(Math.max(0, Math.min(roomW(), d.origX + wx - d.startWX)));
+        L.y = snap(Math.max(0, Math.min(roomD(), d.origY + wy - d.startWY)));
+        invalidateSim(); refreshLightList(); draw();
+      }
+    } else if (state.panning) {
+      state.panX = state.panning.origPanX + (t.clientX - state.panning.startX);
+      state.panY = state.panning.origPanY + (t.clientY - state.panning.startY);
+      draw();
+    } else if (state.rulerDragging && state.ruler) {
+      state.ruler.x2 = wx; state.ruler.y2 = wy;
+      const dist = Math.hypot(wx - state.ruler.x1, wy - state.ruler.y1);
+      const ro = document.getElementById('ruler-readout');
+      ro.textContent = dist < 1 ? (dist*100).toFixed(0)+' cm' : dist.toFixed(2)+' m';
+      ro.style.display = 'block';
+      draw();
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (e.touches.length === 0) ts.pinching = false;
+  if (!ts.moved && !ts.pinching && e.changedTouches.length > 0) {
+    const t = e.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    const [wx, wy] = c2w(t.clientX - rect.left, t.clientY - rect.top);
+    if (state.mode === 'place') {
+      addLight(Math.max(0, Math.min(roomW(), wx)), Math.max(0, Math.min(roomD(), wy)));
+    } else if (state.mode === 'pin' && state.simulated) {
+      addPin(Math.max(0, Math.min(roomW(), wx)), Math.max(0, Math.min(roomD(), wy)));
+    }
+  }
+  if (e.touches.length === 0) {
+    state.dragging = null; state.panning = null;
+    if (state.rulerDragging) { state.rulerDragging = false; draw(); }
+  }
+}, { passive: false });
 </script>
+<div id="mobile-backdrop"></div>
+<button id="mobile-fab">⚙</button>
 </body>
 </html>
