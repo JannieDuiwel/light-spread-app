@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Light Dispersion Simulator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -154,6 +156,11 @@
   #toolbar .tool-btn.active { background: #f5a623; color: #111; border-color: #f5a623; }
   #toolbar .tool-btn:disabled { opacity: .35; cursor: default; }
   .toolbar-sep { width: 1px; height: 20px; background: #2a2a2a; }
+  .toolbar-grid-label { font-size: 12px; color: #888; display: flex; align-items: center; gap: 5px; }
+  .toolbar-grid-label select {
+    background: #252525; border: 1px solid #333; color: #bbb;
+    padding: 3px 6px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
 
   #canvas-wrap {
     flex: 1; overflow: hidden; position: relative;
@@ -249,6 +256,74 @@
     align-items: center; justify-content: center;
     margin: 0; padding: 0; width: 52px;
   }
+
+  /* ── MAP MODAL ── */
+  #map-modal {
+    display: none; position: fixed; inset: 0; z-index: 500;
+    background: rgba(0,0,0,0.75); align-items: center; justify-content: center;
+  }
+  #map-modal.open { display: flex; }
+  #map-modal-inner {
+    background: #1a1a1a; border-radius: 8px; border: 1px solid #333;
+    width: 620px; height: 480px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  #map-modal-inner h3 {
+    padding: 10px 16px; font-size: 13px; color: #ddd; flex-shrink: 0;
+    border-bottom: 1px solid #2a2a2a; font-weight: 600;
+  }
+  #leaflet-map { flex: 1; }
+  #map-modal-footer {
+    padding: 8px 16px; border-top: 1px solid #2a2a2a; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; color: #888;
+  }
+
+  /* ── COMPARE LABELS ── */
+  #compare-labels {
+    position: absolute; top: 8px; left: 0; right: 0; pointer-events: none;
+    display: none; justify-content: space-around; z-index: 10;
+  }
+  #compare-labels.visible { display: flex; }
+  .compare-label {
+    background: rgba(0,0,0,0.72); border: 1px solid #555; border-radius: 4px;
+    padding: 3px 12px; font-size: 11px; color: #ddd;
+  }
+  #compare-divider {
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 1px;
+    background: rgba(255,255,255,0.35); pointer-events: none; display: none;
+  }
+  #compare-divider.visible { display: block; }
+
+  /* ── SCENARIO LIST ── */
+  .sc-item {
+    display: flex; align-items: center; gap: 4px; padding: 4px 0;
+    border-bottom: 1px solid #252525; font-size: 12px;
+  }
+  .sc-item .sc-name {
+    flex: 1; background: none; border: none; color: #bbb; font-size: 12px;
+    padding: 1px 3px; cursor: text; border-radius: 3px; min-width: 0;
+  }
+  .sc-item .sc-name:focus {
+    outline: 1px solid #f5a623; background: #252525; color: #fff;
+  }
+  .sc-item.active-sc .sc-name { color: #f5a623; font-weight: 600; }
+  .sc-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: #555; border: 1px solid #666; cursor: pointer;
+  }
+  .sc-dot.on { background: #f5a623; border-color: #f5a623; }
+  .sc-item button { background: none; border: none; color: #555; cursor: pointer; font-size: 13px; width: auto; padding: 0 2px; margin: 0; flex-shrink: 0; }
+  .sc-item button:hover { color: #c0392b; }
+
+  /* ── WINDOW LIST ── */
+  .win-item { display: flex; align-items: center; gap: 4px; padding: 4px 0; border-bottom: 1px solid #252525; font-size: 12px; color: #bbb; cursor: pointer; }
+  .win-item.selected { color: #4af; }
+  .win-item .info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .win-item .rm { background: none; border: none; color: #555; cursor: pointer; font-size: 13px; width: auto; padding: 0 4px; margin: 0; flex-shrink: 0; }
+  .win-item .rm:hover { color: #c0392b; }
+
+  #win-spec-panel { margin-bottom: 4px; }
+  #sun-info { font-size: 10px; color: #888; margin-top: 4px; min-height: 14px; }
 
   @media (max-width: 768px) {
     body { overflow: hidden; }
@@ -417,6 +492,50 @@
   </div>
 
   <div class="section">
+    <h2>Scenarios</h2>
+    <div id="scenario-list" style="margin-bottom:4px;"></div>
+    <button class="btn-secondary" id="btn-add-scenario" style="margin-bottom:6px;">+ Add Scenario</button>
+    <div id="compare-controls" style="display:none;">
+      <div style="font-size:11px;color:#666;margin-bottom:4px;">Side-by-side compare:</div>
+      <label style="font-size:11px;">Left &nbsp;<select id="compare-left-sel" style="background:#252525;border:1px solid #333;color:#ddd;border-radius:4px;font-size:11px;padding:2px 4px;"></select></label>
+      <label style="font-size:11px;margin-top:4px;">Right <select id="compare-right-sel" style="background:#252525;border:1px solid #333;color:#ddd;border-radius:4px;font-size:11px;padding:2px 4px;margin-left:2px;"></select></label>
+      <button class="btn-primary" id="btn-simulate-compare" style="margin-top:6px;">▶ Simulate &amp; Compare</button>
+      <button class="btn-secondary" id="btn-exit-compare" style="margin-top:4px;display:none;">✕ Exit Compare</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Windows &amp; Daylight</h2>
+    <div id="win-spec-panel">
+      <label>Wall <select id="win-wall" style="background:#252525;border:1px solid #333;color:#ddd;border-radius:4px;font-size:12px;padding:2px 4px;margin-left:auto;">
+        <option value="N">North (top)</option><option value="S">South (bottom)</option>
+        <option value="E">East (right)</option><option value="W">West (left)</option>
+      </select></label>
+      <label>Position from corner <input type="number" id="win-pos" value="1" min="0" max="200" step="0.1"> <span>m</span></label>
+      <label>Width  <input type="number" id="win-width"  value="1.5" min="0.1" max="50" step="0.1"> <span>m</span></label>
+      <label>Height <input type="number" id="win-height" value="1.2" min="0.1" max="10" step="0.1"> <span>m</span></label>
+      <label>Sill height <input type="number" id="win-sill" value="0.9" min="0" max="10" step="0.1"> <span>m</span></label>
+      <label>Transmittance <input type="number" id="win-transmit" value="0.7" min="0.05" max="1.0" step="0.05"> <span>τ</span></label>
+    </div>
+    <button class="btn-secondary" id="btn-place-window-mode" style="margin-bottom:2px;">+ Place Window (click wall)</button>
+    <div style="font-size:10px;color:#555;margin-bottom:4px;">Or fill fields above and click Add:</div>
+    <button class="btn-secondary" id="btn-add-window" style="margin-bottom:4px;">+ Add Window (manual)</button>
+    <ul id="window-list" class="item-list" style="margin-top:0;"></ul>
+
+    <div style="height:8px;border-top:1px solid #252525;margin-top:6px;"></div>
+    <h2 style="margin-bottom:8px;">Sun / Sky Config</h2>
+    <label>Date <input type="date" id="sun-date" value="2024-06-21" style="margin-left:auto;background:#252525;border:1px solid #333;color:#ddd;border-radius:4px;font-size:12px;padding:3px 5px;"></label>
+    <label>Solar time <input type="number" id="sun-time" value="12" min="0" max="24" step="0.25"> <span>h</span></label>
+    <label>North angle <input type="number" id="sun-north" value="0" min="0" max="359" step="5"> <span>° (0 = top is N)</span></label>
+    <div style="display:flex;gap:4px;margin-top:2px;">
+      <label style="flex:1;font-size:11px;">Lat <input type="number" id="sun-lat" value="51.5" min="-90" max="90" step="0.1" style="width:64px;font-size:12px;"> <span>°</span></label>
+      <label style="flex:1;font-size:11px;">Lon <input type="number" id="sun-lon" value="-0.1" min="-180" max="180" step="0.1" style="width:64px;font-size:12px;"> <span>°</span></label>
+    </div>
+    <button class="btn-secondary" id="btn-pick-location" style="margin-top:4px;font-size:11px;">🗺 Pick location on map…</button>
+    <div id="sun-info"></div>
+  </div>
+
+  <div class="section">
     <h2>Measurement pins</h2>
     <ul id="pin-list" class="item-list"></ul>
     <button class="btn-secondary" id="btn-pin-mode" disabled>+ Place pin (after simulate)</button>
@@ -477,7 +596,13 @@
       </select>
     </label>
 
-    <button class="btn-success"   id="btn-export"   style="margin-top:8px;">⬇ Export PNG</button>
+    <div style="display:flex;gap:4px;margin-top:8px;">
+      <button class="btn-secondary" id="btn-save-json" style="flex:1;margin:0;font-size:11px;">💾 Save</button>
+      <button class="btn-secondary" id="btn-load-json" style="flex:1;margin:0;font-size:11px;">📂 Load</button>
+      <input type="file" id="load-json-file" accept=".json" style="display:none;">
+    </div>
+    <div id="autosave-status" style="font-size:10px;color:#555;text-align:right;margin-top:2px;margin-bottom:4px;">Auto-save: ready</div>
+    <button class="btn-success"   id="btn-export"   style="margin-top:0;">⬇ Export PNG</button>
     <label style="margin-top:8px;font-size:11px;color:#555;">
       Project title
       <input type="text" id="projectTitle" value="Light Simulation"
@@ -497,8 +622,21 @@
     <button class="tool-btn"        id="tool-ruler">Ruler</button>
     <div class="toolbar-sep"></div>
     <button class="tool-btn"        id="tool-draw-room">Draw Room</button>
+    <button class="tool-btn"        id="tool-edit-room">Edit Corners</button>
     <button class="tool-btn"        id="tool-draw-wall">Add Wall</button>
     <div class="toolbar-sep"></div>
+    <button class="tool-btn"        id="tool-place-window">Place Window</button>
+    <div class="toolbar-sep"></div>
+    <button class="tool-btn" id="btn-undo" disabled title="Undo (Ctrl+Z)">↩ Undo</button>
+    <button class="tool-btn" id="btn-redo" disabled title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
+    <div class="toolbar-sep"></div>
+    <div class="toolbar-sep"></div>
+    <label class="toolbar-grid-label">Grid <select id="grid-snap-select">
+      <option value="0.1">10 cm</option>
+      <option value="0.25" selected>25 cm</option>
+      <option value="0.5">50 cm</option>
+      <option value="1">1 m</option>
+    </select></label>
     <span id="cursor-info">Hover canvas for position</span>
   </div>
   <div id="canvas-wrap">
@@ -525,8 +663,25 @@
       <div class="stat-row" id="stat-emerg-row" style="display:none;"><span id="stat-emerg-label">Compliant area</span><span id="stat-emerg" class="stat-val">—</span></div>
     </div>
     <div id="ruler-readout"></div>
+    <div id="compare-labels">
+      <span class="compare-label" id="compare-label-left">Scenario A</span>
+      <span class="compare-label" id="compare-label-right">Scenario B</span>
+    </div>
+    <div id="compare-divider"></div>
   </div>
 </div>
+
+<div id="map-modal">
+  <div id="map-modal-inner">
+    <h3>Pick Location — click map to set latitude / longitude</h3>
+    <div id="leaflet-map"></div>
+    <div id="map-modal-footer">
+      <span id="map-coords">No location selected — click the map</span>
+      <button class="btn-secondary" id="btn-close-map" style="width:auto;padding:4px 14px;margin:0;font-size:12px;">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="mobile-backdrop"></div>
 <button id="mobile-fab">⚙</button>
 
@@ -557,7 +712,25 @@ const state = {
   nextWallId: 1,
   drawingWall: null,
   selectedWallId: null,
+  draggingVertex: null,
+  hoveredVertex: null,
   mouseWorld: { x: 0, y: 0 },
+  windows: [],
+  nextWindowId: 1,
+  selectedWindowId: null,
+  windowSnap: null,
+  scenarios: [],
+  nextScenarioId: 1,
+  activeScenarioId: null,
+  compareMode: false,
+  compareLeftId: null,
+  compareRightId: null,
+  simResults: {},
+  sunConfig: {
+    lat: 51.5, lon: -0.1,
+    date: new Date().toISOString().slice(0, 10),
+    time: 12, northAngle: 0, transmittance: 0.7,
+  },
   get openArea() { return document.getElementById('openArea').checked; },
 };
 
@@ -778,32 +951,38 @@ function computeIndirectLux(lights, rw, rd, rh) {
 }
 
 function applyReflPreset(ceil, walls, floor) {
+  recordHistory();
   document.getElementById('reflCeil').value  = ceil;
   document.getElementById('reflWalls').value = walls;
   document.getElementById('reflFloor').value = floor;
+  scheduleAutoSave();
 }
 
 function clearRoomPolygon() {
+  recordHistory();
   state.roomPolygon = [];
   if (state.mode === 'draw-room') setMode('select');
-  invalidateSim(); refreshWallList(); draw();
+  invalidateSim(); refreshWallList(); draw(); scheduleAutoSave();
 }
 
 function closeRoomPolygon() {
   if (state.roomPolygon.length >= 3) {
+    recordHistory();
     setMode('select');
-    invalidateSim(); refreshWallList(); draw();
+    invalidateSim(); refreshWallList(); draw(); scheduleAutoSave();
   }
 }
 
 function addWallSegment(x1, y1, x2, y2) {
+  recordHistory();
   state.wallSegments.push({ id: state.nextWallId++, x1, y1, x2, y2 });
-  invalidateSim(); refreshWallList();
+  invalidateSim(); refreshWallList(); scheduleAutoSave();
 }
 
 function removeWall(id) {
+  recordHistory();
   state.wallSegments = state.wallSegments.filter(w => w.id !== id);
-  invalidateSim(); refreshWallList(); draw();
+  invalidateSim(); refreshWallList(); draw(); scheduleAutoSave();
 }
 
 function refreshWallList() {
@@ -1131,7 +1310,8 @@ function scaleMax() {
 }
 
 function simulate() {
-  if (state.lights.length === 0) { alert('Place at least one light first.'); return; }
+  const effectiveLights = getEffectiveLights(state.activeScenarioId);
+  if (effectiveLights.length === 0 && state.windows.length === 0) { alert('Place at least one light or window first.'); return; }
   const rw = roomW(), rd = roomD(), wPlane = workPlane();
 
   let gridW = rw, gridD = rd;
@@ -1141,7 +1321,7 @@ function simulate() {
   }
 
   const resolution = Math.max(0.04, Math.min(gridW, gridD) / 450);
-  const { grid, cols, rows } = computeLuxGrid(gridW, gridD, resolution, state.lights, wPlane);
+  const { grid, cols, rows } = computeLuxGrid(gridW, gridD, resolution, effectiveLights, wPlane);
 
   if (!state.openArea) {
     const nBounces = parseInt(document.getElementById('reflBounces').value) || 3;
@@ -1149,6 +1329,16 @@ function simulate() {
     if (indirect) {
       for (let i = 0; i < grid.length; i++) grid[i] += indirect[i];
     }
+  }
+
+  if (state.windows.length > 0) {
+    const winGrid = computeWindowsLux(state.windows, state.sunConfig, gridW, gridD, wPlane, cols, rows, resolution);
+    if (!state.openArea) {
+      const nBounces = parseInt(document.getElementById('reflBounces').value) || 3;
+      const winBounce = computeMultiBounce(winGrid, cols, rows, resolution, gridW, gridD, wPlane, roomH(), nBounces);
+      if (winBounce) for (let i = 0; i < grid.length; i++) { if (grid[i] >= 0) grid[i] += winBounce[i]; }
+    }
+    for (let i = 0; i < grid.length; i++) { if (grid[i] >= 0) grid[i] += winGrid[i]; }
   }
 
   if (state.roomPolygon.length >= 3) {
@@ -1175,6 +1365,7 @@ function simulate() {
   state.rawGrid = grid;
   state.heatmap = { imgData: null, cols, rows, rw: gridW, rd: gridD, resolution };
   state.simulated = true;
+  state.simResults['active'] = { rawGrid: grid, heatmap: state.heatmap, maxLux, minLux: state.minLux, avgLux };
   updateStatsPanel();
 
   for (const p of state.pins) {
@@ -1228,6 +1419,7 @@ function updateLegendBar() {
 }
 
 function draw() {
+  if (state.compareMode) { drawCompareSplit(); return; }
   const W = canvas.width, H = canvas.height;
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle = '#0d0d0d';
@@ -1348,6 +1540,7 @@ function draw() {
     }
   }
 
+  drawWindows();
   if (document.getElementById('showContours').checked) drawContours();
 
   for (const p of state.pins) {
@@ -1402,10 +1595,23 @@ function draw() {
         ctx.beginPath(); ctx.arc(p0x, p0y, 9, 0, Math.PI*2); ctx.stroke();
       }
     }
-    ctx.fillStyle = '#4af';
-    for (const v of state.roomPolygon) {
-      const [vx, vy] = w2c(v.x, v.y);
-      ctx.beginPath(); ctx.arc(vx, vy, 4, 0, Math.PI*2); ctx.fill();
+    if (state.mode === 'edit-room') {
+      for (let i = 0; i < state.roomPolygon.length; i++) {
+        const v = state.roomPolygon[i];
+        const [vx, vy] = w2c(v.x, v.y);
+        const isDrag = state.draggingVertex !== null && state.draggingVertex.index === i;
+        const isHov  = state.hoveredVertex === i;
+        ctx.fillStyle   = isDrag ? '#fff' : isHov ? '#ffe' : '#fa0';
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+        const r = isDrag || isHov ? 9 : 7;
+        ctx.beginPath(); ctx.arc(vx, vy, r, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = '#4af';
+      for (const v of state.roomPolygon) {
+        const [vx, vy] = w2c(v.x, v.y);
+        ctx.beginPath(); ctx.arc(vx, vy, 4, 0, Math.PI*2); ctx.fill();
+      }
     }
     ctx.restore();
   }
@@ -1525,6 +1731,7 @@ specFields.forEach(id => {
     }
     const L = state.lights.find(l => l.id === state.selectedLightId);
     if (!L) return;
+    recordHistory();
     Object.assign(L, readSpec());
     state.heatmap   = null;
     state.rawGrid   = null;
@@ -1533,10 +1740,11 @@ specFields.forEach(id => {
     document.getElementById('tool-pin').disabled     = true;
     refreshLightList();
     draw();
+    scheduleAutoSave();
   });
 });
 
-const GRID_SNAP = 0.25;
+let GRID_SNAP = 0.25;
 function snap(v) { return Math.round(v / GRID_SNAP) * GRID_SNAP; }
 
 function renumberLights() {
@@ -1574,18 +1782,22 @@ function buildArrayPositions(cx, cy) {
 }
 
 function addLight(wx, wy) {
+  recordHistory();
   const L = { id: state.nextLightId++, x: snap(wx), y: snap(wy), ...readSpec() };
   state.lights.push(L);
   selectLight(L.id);
   invalidateSim();
+  scheduleAutoSave();
 }
 
 function removeLight(id) {
+  recordHistory();
   state.lights = state.lights.filter(l => l.id !== id);
   renumberLights();
   invalidateSim();
   refreshLightList();
   draw();
+  scheduleAutoSave();
 }
 
 function selectLight(id) {
@@ -1617,6 +1829,7 @@ function refreshLightList() {
 function addPin(wx, wy) {
   const lux = gridLux(wx, wy);
   if (lux === null) return;
+  recordHistory();
   const p = { id: state.nextPinId++, x: wx, y: wy, lux };
   state.pins.push(p);
   state.selectedPinId   = p.id;
@@ -1628,10 +1841,12 @@ function addPin(wx, wy) {
 }
 
 function removePin(id) {
+  recordHistory();
   state.pins = state.pins.filter(p => p.id !== id);
   renumberPins();
   refreshPinList();
   draw();
+  scheduleAutoSave();
 }
 
 function selectPin(id) {
@@ -1697,6 +1912,28 @@ canvas.addEventListener('mousemove', e => {
     draw(); return;
   }
 
+  if (state.mode === 'place-window') {
+    state.windowSnap = snapToWall(wx, wy);
+    draw(); return;
+  }
+
+  if (state.draggingVertex !== null) {
+    state.roomPolygon[state.draggingVertex.index] = { x: snap(wx), y: snap(wy) };
+    invalidateSim(); draw(); return;
+  }
+
+  if (state.mode === 'edit-room') {
+    const ecx = e.clientX - rect.left, ecy = e.clientY - rect.top;
+    let hov = null;
+    for (let i = 0; i < state.roomPolygon.length; i++) {
+      const [vx, vy] = w2c(state.roomPolygon[i].x, state.roomPolygon[i].y);
+      if (Math.hypot(ecx - vx, ecy - vy) < 14) { hov = i; break; }
+    }
+    if (hov !== state.hoveredVertex) { state.hoveredVertex = hov; draw(); }
+    wrap.style.cursor = hov !== null ? 'grab' : 'crosshair';
+    return;
+  }
+
   if (state.mode === 'draw-room' || state.mode === 'draw-wall') { draw(); return; }
 
   if (state.dragging) {
@@ -1733,6 +1970,11 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
 
+  if (state.mode === 'place-window') {
+    placeWindowAtSnap(state.windowSnap);
+    return;
+  }
+
   if (state.mode === 'pin') {
     if (state.simulated) addPin(Math.max(0,Math.min(roomW(),wx)), Math.max(0,Math.min(roomD(),wy)));
     return;
@@ -1752,8 +1994,9 @@ canvas.addEventListener('mousedown', e => {
       const [fx, fy] = w2c(state.roomPolygon[0].x, state.roomPolygon[0].y);
       if (Math.hypot(cx - fx, cy - fy) < 15) { closeRoomPolygon(); return; }
     }
+    recordHistory();
     state.roomPolygon.push(pt);
-    invalidateSim(); refreshWallList(); draw();
+    invalidateSim(); refreshWallList(); draw(); scheduleAutoSave();
     return;
   }
 
@@ -1771,6 +2014,7 @@ canvas.addEventListener('mousedown', e => {
   }
 
   if (state.mode === 'array') {
+    recordHistory();
     const positions = buildArrayPositions(wx, wy);
     for (const [ax, ay] of positions) {
       const L = { id: state.nextLightId++, x: snap(Math.max(0, Math.min(roomW(), ax))), y: snap(Math.max(0, Math.min(roomD(), ay))), ...readSpec() };
@@ -1779,6 +2023,21 @@ canvas.addEventListener('mousedown', e => {
     state.arrayPreview = null;
     invalidateSim(); refreshLightList(); draw();
     setMode('select');
+    scheduleAutoSave();
+    return;
+  }
+
+  if (state.mode === 'edit-room') {
+    for (let i = 0; i < state.roomPolygon.length; i++) {
+      const [vx, vy] = w2c(state.roomPolygon[i].x, state.roomPolygon[i].y);
+      if (Math.hypot(cx - vx, cy - vy) < 14) {
+        recordHistory();
+        state.draggingVertex = { index: i };
+        wrap.style.cursor = 'grabbing';
+        return;
+      }
+    }
+    state.panning = { startX: e.clientX, startY: e.clientY, origPanX: state.panX, origPanY: state.panY };
     return;
   }
 
@@ -1790,6 +2049,7 @@ canvas.addEventListener('mousedown', e => {
     const [lx,ly] = w2c(L.x, L.y);
     if (Math.hypot(cx-lx, cy-ly) < 12) {
       selectLight(L.id);
+      recordHistory();
       state.dragging = { id: L.id, startWX: wx, startWY: wy, origX: L.x, origY: L.y };
       return;
     }
@@ -1817,10 +2077,16 @@ canvas.addEventListener('mousedown', e => {
 });
 
 canvas.addEventListener('mouseup', () => {
+  if (state.dragging) scheduleAutoSave();
   state.dragging = null; state.panning = null;
+  if (state.draggingVertex !== null) {
+    state.draggingVertex = null;
+    wrap.style.cursor = 'crosshair';
+    scheduleAutoSave(); draw();
+  }
   if (state.rulerDragging) { state.rulerDragging = false; draw(); }
 });
-canvas.addEventListener('mouseleave', () => { state.dragging = null; state.panning = null; });
+canvas.addEventListener('mouseleave', () => { state.dragging = null; state.panning = null; state.draggingVertex = null; });
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
   if (state.mode === 'draw-room') {
@@ -1846,15 +2112,20 @@ function setMode(m) {
   state.mode = m;
   if (m !== 'array') state.arrayPreview = null;
   if (m !== 'draw-wall') state.drawingWall = null;
+  if (m !== 'place-window') state.windowSnap = null;
   if (m !== 'select') state.selectedWallId = null;
-  document.getElementById('tool-select').classList.toggle('active',    m === 'select');
-  document.getElementById('tool-place').classList.toggle('active',     m === 'place');
-  document.getElementById('tool-pin').classList.toggle('active',       m === 'pin');
-  document.getElementById('tool-ruler').classList.toggle('active',     m === 'ruler');
-  document.getElementById('tool-draw-room').classList.toggle('active', m === 'draw-room');
-  document.getElementById('tool-draw-wall').classList.toggle('active', m === 'draw-wall');
-  const crosshair = m === 'pin' || m === 'ruler' || m === 'draw-room' || m === 'draw-wall';
+  if (m !== 'edit-room') { state.draggingVertex = null; state.hoveredVertex = null; }
+  document.getElementById('tool-select').classList.toggle('active',       m === 'select');
+  document.getElementById('tool-place').classList.toggle('active',        m === 'place');
+  document.getElementById('tool-pin').classList.toggle('active',          m === 'pin');
+  document.getElementById('tool-ruler').classList.toggle('active',        m === 'ruler');
+  document.getElementById('tool-draw-room').classList.toggle('active',    m === 'draw-room');
+  document.getElementById('tool-edit-room').classList.toggle('active',    m === 'edit-room');
+  document.getElementById('tool-draw-wall').classList.toggle('active',    m === 'draw-wall');
+  document.getElementById('tool-place-window').classList.toggle('active', m === 'place-window');
+  const crosshair = m === 'pin' || m === 'ruler' || m === 'draw-room' || m === 'edit-room' || m === 'draw-wall' || m === 'place-window';
   wrap.className = m === 'select' ? 'move-mode' : crosshair ? 'pin-mode' : '';
+  wrap.style.cursor = '';
   if (m !== 'ruler') { state.ruler = null; document.getElementById('ruler-readout').style.display = 'none'; }
   refreshWallList();
   draw();
@@ -1866,6 +2137,12 @@ document.getElementById('tool-pin').addEventListener('click',       () => setMod
 document.getElementById('tool-ruler').addEventListener('click',     () => setMode('ruler'));
 document.getElementById('tool-draw-room').addEventListener('click', () => setMode('draw-room'));
 document.getElementById('tool-draw-wall').addEventListener('click', () => setMode('draw-wall'));
+document.getElementById('tool-edit-room').addEventListener('click', () => setMode('edit-room'));
+
+document.getElementById('grid-snap-select').addEventListener('change', e => {
+  GRID_SNAP = parseFloat(e.target.value);
+  draw();
+});
 
 document.getElementById('btn-add-mode').addEventListener('click',  () => setMode('place'));
 document.getElementById('btn-pin-mode').addEventListener('click',  () => setMode('pin'));
@@ -1939,15 +2216,17 @@ document.getElementById('btn-reset-view').addEventListener('click', () => { fitV
 document.getElementById('btn-clear-lights').addEventListener('click', () => {
   if (!state.lights.length) return;
   if (!confirm('Remove all lights?')) return;
+  recordHistory();
   state.lights = []; state.selectedLightId = null; state.nextLightId = 1;
   document.getElementById('spec-editing').textContent = '';
-  invalidateSim(); refreshLightList(); draw();
+  invalidateSim(); refreshLightList(); draw(); scheduleAutoSave();
 });
 
 document.getElementById('btn-clear-pins').addEventListener('click', () => {
   if (!state.pins.length) return;
+  recordHistory();
   state.pins = []; state.selectedPinId = null; state.nextPinId = 1;
-  refreshPinList(); draw();
+  refreshPinList(); draw(); scheduleAutoSave();
 });
 
 document.getElementById('openArea').addEventListener('change', () => {
@@ -1972,12 +2251,15 @@ document.getElementById('customLuxMax').addEventListener('change', () => {
 });
 
 ['roomW','roomD','areaW','areaD'].forEach(id => {
-  document.getElementById(id).addEventListener('change', () => { invalidateSim(); fitView(); draw(); });
+  document.getElementById(id).addEventListener('change', () => { recordHistory(); invalidateSim(); fitView(); draw(); scheduleAutoSave(); });
 });
 
 document.addEventListener('keydown', e => {
   const active = document.activeElement;
   const typing = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA');
+
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
 
   if (e.key === 'Escape') {
     if (state.mode === 'draw-room' && state.roomPolygon.length > 0) {
@@ -2384,6 +2666,7 @@ canvas.addEventListener('touchstart', e => {
     const [lx, ly] = w2c(L.x, L.y);
     if (Math.hypot(cx - lx, cy - ly) < 20) {
       selectLight(L.id);
+      recordHistory();
       state.dragging = { id: L.id, startWX: wx, startWY: wy, origX: L.x, origY: L.y };
       return;
     }
@@ -2449,6 +2732,9 @@ canvas.addEventListener('touchend', e => {
     const [wx, wy] = c2w(tcx, tcy);
     if (state.mode === 'place') {
       addLight(Math.max(0, Math.min(roomW(), wx)), Math.max(0, Math.min(roomD(), wy)));
+    } else if (state.mode === 'place-window') {
+      const snap = snapToWall(wx, wy);
+      placeWindowAtSnap(snap);
     } else if (state.mode === 'pin' && state.simulated) {
       addPin(Math.max(0, Math.min(roomW(), wx)), Math.max(0, Math.min(roomD(), wy)));
     } else if (state.mode === 'draw-room') {
@@ -2457,8 +2743,9 @@ canvas.addEventListener('touchend', e => {
         const [fx, fy] = w2c(state.roomPolygon[0].x, state.roomPolygon[0].y);
         if (Math.hypot(tcx - fx, tcy - fy) < 24) { closeRoomPolygon(); return; }
       }
+      recordHistory();
       state.roomPolygon.push(pt);
-      invalidateSim(); refreshWallList(); draw();
+      invalidateSim(); refreshWallList(); draw(); scheduleAutoSave();
     } else if (state.mode === 'draw-wall') {
       const pt = { x: snap(wx), y: snap(wy) };
       if (!state.drawingWall) {
@@ -2484,6 +2771,982 @@ document.addEventListener('gestureend',    e => e.preventDefault(), { passive: f
 document.addEventListener('touchmove', e => {
   if (e.touches.length > 1) e.preventDefault();
 }, { passive: false });
+
+// ═══════════════════════════════════════════════════════════════
+// UNDO / REDO
+// ═══════════════════════════════════════════════════════════════
+
+const _history = { past: [], future: [] };
+
+function captureSnapshot() {
+  const domIds = ['roomW','roomD','areaW','areaD','workPlane','roomH',
+    'reflCeil','reflWalls','reflFloor','reflBounces','openArea',
+    'lumens','beamAngle','mountH','cct','llf','distrib','shape',
+    'lightLength','lightRotation','aimTilt','aimAz',
+    'projectTitle','luxScale','customLuxMax','targetLux','contourLevels',
+    'showTarget','showContours','showEmerg','emergStd',
+    'bgScale','bgOffX','bgOffY','bgOpacity',
+    'win-wall','win-pos','win-width','win-height','win-sill','win-transmit',
+    'sun-date','sun-time','sun-north','sun-lat','sun-lon'];
+  const dom = {};
+  for (const id of domIds) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    dom[id] = el.type === 'checkbox' ? el.checked : el.value;
+  }
+  return {
+    lights:        JSON.parse(JSON.stringify(state.lights)),
+    pins:          JSON.parse(JSON.stringify(state.pins)),
+    wallSegments:  JSON.parse(JSON.stringify(state.wallSegments)),
+    roomPolygon:   JSON.parse(JSON.stringify(state.roomPolygon)),
+    windows:       JSON.parse(JSON.stringify(state.windows)),
+    scenarios:     JSON.parse(JSON.stringify(state.scenarios)),
+    sunConfig:     JSON.parse(JSON.stringify(state.sunConfig)),
+    nextLightId:   state.nextLightId,
+    nextPinId:     state.nextPinId,
+    nextWallId:    state.nextWallId,
+    nextWindowId:  state.nextWindowId,
+    nextScenarioId:state.nextScenarioId,
+    activeScenarioId: state.activeScenarioId,
+    dom,
+  };
+}
+
+function recordHistory() {
+  _history.past.push(captureSnapshot());
+  if (_history.past.length > 60) _history.past.shift();
+  _history.future = [];
+  updateUndoButtons();
+}
+
+function applySnapshot(snap) {
+  state.lights         = JSON.parse(JSON.stringify(snap.lights));
+  state.pins           = JSON.parse(JSON.stringify(snap.pins));
+  state.wallSegments   = JSON.parse(JSON.stringify(snap.wallSegments));
+  state.roomPolygon    = JSON.parse(JSON.stringify(snap.roomPolygon));
+  state.windows        = JSON.parse(JSON.stringify(snap.windows || []));
+  state.scenarios      = JSON.parse(JSON.stringify(snap.scenarios || []));
+  if (snap.sunConfig) Object.assign(state.sunConfig, snap.sunConfig);
+  state.nextLightId    = snap.nextLightId;
+  state.nextPinId      = snap.nextPinId;
+  state.nextWallId     = snap.nextWallId;
+  state.nextWindowId   = snap.nextWindowId  || 1;
+  state.nextScenarioId = snap.nextScenarioId || 1;
+  state.activeScenarioId = snap.activeScenarioId ?? null;
+
+  for (const [id, val] of Object.entries(snap.dom || {})) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = val;
+    else el.value = val;
+  }
+  const open = document.getElementById('openArea').checked;
+  document.getElementById('room-dims').classList.toggle('hidden',  open);
+  document.getElementById('open-dims').classList.toggle('hidden', !open);
+  document.getElementById('room-h-label').classList.toggle('hidden', open);
+  document.getElementById('reflectance-section').classList.toggle('hidden', open);
+  const isLinear = document.getElementById('shape').value === 'linear';
+  document.getElementById('linear-opts').classList.toggle('hidden', !isLinear);
+  document.getElementById('aim-az-row').style.display = isLinear ? 'none' : '';
+  const selL = state.lights.find(l => l.id === state.selectedLightId);
+  if (!selL) { state.selectedLightId = null; loadSpec(null); }
+
+  invalidateSim();
+  refreshLightList(); refreshPinList(); refreshWallList();
+  refreshWindowList(); refreshScenarioList();
+  fitView(); draw();
+}
+
+function undo() {
+  if (!_history.past.length) return;
+  _history.future.push(captureSnapshot());
+  applySnapshot(_history.past.pop());
+  updateUndoButtons();
+}
+
+function redo() {
+  if (!_history.future.length) return;
+  _history.past.push(captureSnapshot());
+  applySnapshot(_history.future.pop());
+  updateUndoButtons();
+}
+
+function updateUndoButtons() {
+  document.getElementById('btn-undo').disabled = _history.past.length === 0;
+  document.getElementById('btn-redo').disabled = _history.future.length === 0;
+}
+
+document.getElementById('btn-undo').addEventListener('click', undo);
+document.getElementById('btn-redo').addEventListener('click', redo);
+
+// ═══════════════════════════════════════════════════════════════
+// SAVE / LOAD / AUTO-SAVE
+// ═══════════════════════════════════════════════════════════════
+
+let _autoSaveTimer = null;
+function scheduleAutoSave() {
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => {
+    try {
+      const data = JSON.stringify(getProjectData());
+      localStorage.setItem('lightSimProject', data);
+      document.getElementById('autosave-status').textContent = 'Auto-saved ✓  ' + new Date().toLocaleTimeString();
+    } catch(e) {
+      document.getElementById('autosave-status').textContent = 'Auto-save failed (storage full?)';
+    }
+  }, 900);
+}
+
+function getProjectData() {
+  return { version: 2, ...captureSnapshot() };
+}
+
+function saveProjectJSON() {
+  const title = document.getElementById('projectTitle').value || 'light-sim';
+  const blob = new Blob([JSON.stringify(getProjectData(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = title.replace(/[^a-z0-9_-]/gi, '_') + '.json';
+  a.click();
+}
+
+function loadProjectFromData(data) {
+  if (!data || !data.lights) { alert('Invalid project file.'); return; }
+  recordHistory();
+  applySnapshot(data);
+  scheduleAutoSave();
+}
+
+function loadAutoSave() {
+  try {
+    const saved = localStorage.getItem('lightSimProject');
+    if (!saved) return;
+    const data = JSON.parse(saved);
+    if (data && data.lights) { applySnapshot(data); updateUndoButtons(); }
+  } catch(e) {}
+}
+
+document.getElementById('btn-save-json').addEventListener('click', saveProjectJSON);
+document.getElementById('btn-load-json').addEventListener('click', () => document.getElementById('load-json-file').click());
+document.getElementById('load-json-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try { loadProjectFromData(JSON.parse(ev.target.result)); }
+    catch(err) { alert('Could not parse file: ' + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SCENARIOS
+// ═══════════════════════════════════════════════════════════════
+
+function getEffectiveLights(scenarioId) {
+  if (!scenarioId) return state.lights;
+  const sc = state.scenarios.find(s => s.id === scenarioId);
+  if (!sc) return state.lights;
+  return state.lights.map(l => {
+    const ov = sc.lightOverrides[l.id];
+    if (ov && ov.enabled === false) return null;
+    if (ov && ov.dimFactor != null && ov.dimFactor !== 1) {
+      return { ...l, lumens: l.lumens * ov.dimFactor };
+    }
+    return l;
+  }).filter(Boolean);
+}
+
+function addScenario() {
+  recordHistory();
+  const id = state.nextScenarioId++;
+  const overrides = {};
+  state.lights.forEach(l => { overrides[l.id] = { enabled: true, dimFactor: 1 }; });
+  state.scenarios.push({ id, name: `Scenario ${id}`, lightOverrides: overrides });
+  state.activeScenarioId = id;
+  refreshScenarioList(); scheduleAutoSave();
+}
+
+function removeScenario(id) {
+  recordHistory();
+  state.scenarios = state.scenarios.filter(s => s.id !== id);
+  if (state.activeScenarioId === id) state.activeScenarioId = null;
+  if (state.compareLeftId === id) state.compareLeftId = null;
+  if (state.compareRightId === id) state.compareRightId = null;
+  refreshScenarioList(); scheduleAutoSave();
+}
+
+function setActiveScenario(id) {
+  state.activeScenarioId = id;
+  refreshScenarioList();
+}
+
+function getScenarioName(id) {
+  if (!id) return 'Default (all lights)';
+  const sc = state.scenarios.find(s => s.id === id);
+  return sc ? sc.name : 'Unknown';
+}
+
+function refreshScenarioList() {
+  const el = document.getElementById('scenario-list');
+  el.innerHTML = '';
+
+  const makeItem = (id, name) => {
+    const div = document.createElement('div');
+    div.className = 'sc-item' + (state.activeScenarioId === id ? ' active-sc' : '');
+
+    const dot = document.createElement('div');
+    dot.className = 'sc-dot' + (state.activeScenarioId === id ? ' on' : '');
+    dot.title = 'Set as active scenario';
+    dot.addEventListener('click', () => { setActiveScenario(id); });
+    div.appendChild(dot);
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text'; nameInput.className = 'sc-name'; nameInput.value = name;
+    if (id === null) { nameInput.readOnly = true; nameInput.style.cursor = 'default'; }
+    nameInput.addEventListener('change', () => {
+      const sc = state.scenarios.find(s => s.id === id);
+      if (sc) { sc.name = nameInput.value; scheduleAutoSave(); }
+    });
+    div.appendChild(nameInput);
+
+    if (id !== null) {
+      const sc = state.scenarios.find(s => s.id === id);
+      if (sc) {
+        const editBtn = document.createElement('button');
+        editBtn.textContent = '⚙'; editBtn.title = 'Edit light states';
+        editBtn.addEventListener('click', () => openScenarioEditor(id));
+        div.appendChild(editBtn);
+      }
+      const rmBtn = document.createElement('button');
+      rmBtn.textContent = '✕'; rmBtn.title = 'Remove';
+      rmBtn.addEventListener('click', () => removeScenario(id));
+      div.appendChild(rmBtn);
+    }
+    return div;
+  };
+
+  el.appendChild(makeItem(null, 'Default (all lights)'));
+  state.scenarios.forEach(sc => el.appendChild(makeItem(sc.id, sc.name)));
+
+  const hasScenarios = state.scenarios.length > 0;
+  document.getElementById('compare-controls').style.display = hasScenarios ? '' : 'none';
+  if (hasScenarios) populateCompareSelects();
+}
+
+function populateCompareSelects() {
+  const options = [{ id: null, name: 'Default (all lights)' },
+    ...state.scenarios.map(s => ({ id: s.id, name: s.name }))];
+  ['compare-left-sel','compare-right-sel'].forEach((elId, i) => {
+    const sel = document.getElementById(elId);
+    const current = elId === 'compare-left-sel' ? state.compareLeftId : state.compareRightId;
+    sel.innerHTML = options.map(o =>
+      `<option value="${o.id ?? ''}" ${(o.id ?? '') === (current ?? '') ? 'selected' : ''}>${o.name}</option>`
+    ).join('');
+  });
+}
+
+function openScenarioEditor(scenarioId) {
+  const sc = state.scenarios.find(s => s.id === scenarioId);
+  if (!sc || !state.lights.length) return;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;';
+  const inner = document.createElement('div');
+  inner.style.cssText = 'background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;width:340px;max-height:80vh;overflow-y:auto;';
+  inner.innerHTML = `<h3 style="font-size:13px;color:#ddd;margin-bottom:12px;">Edit: ${sc.name}</h3>
+    <p style="font-size:11px;color:#666;margin-bottom:8px;">Toggle lights on/off and set dimming per light.</p>`;
+
+  state.lights.forEach(l => {
+    const ov = sc.lightOverrides[l.id] || { enabled: true, dimFactor: 1 };
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#bbb;';
+    row.innerHTML = `
+      <input type="checkbox" ${ov.enabled !== false ? 'checked' : ''} id="sc-en-${l.id}" style="accent-color:#f5a623;width:14px;height:14px;">
+      <label for="sc-en-${l.id}" style="flex:1;margin:0;color:#bbb;">L${l.id} – ${l.lumens}lm @${l.mountH}m</label>
+      <input type="number" value="${Math.round((ov.dimFactor ?? 1)*100)}" min="5" max="100" step="5" style="width:52px;font-size:11px;background:#252525;border:1px solid #333;color:#ddd;border-radius:3px;padding:2px 4px;" id="sc-dim-${l.id}">
+      <span style="font-size:10px;color:#666;">%</span>`;
+    inner.appendChild(row);
+  });
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;gap:6px;margin-top:12px;';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-primary'; saveBtn.textContent = 'Save'; saveBtn.style.flex = '1';
+  saveBtn.addEventListener('click', () => {
+    recordHistory();
+    state.lights.forEach(l => {
+      sc.lightOverrides[l.id] = {
+        enabled:   document.getElementById('sc-en-'+ l.id).checked,
+        dimFactor: (parseFloat(document.getElementById('sc-dim-'+l.id).value) || 100) / 100,
+      };
+    });
+    document.body.removeChild(modal);
+    scheduleAutoSave(); invalidateSim();
+  });
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn-secondary'; cancelBtn.textContent = 'Cancel'; cancelBtn.style.flex = '1';
+  cancelBtn.addEventListener('click', () => document.body.removeChild(modal));
+  footer.appendChild(saveBtn); footer.appendChild(cancelBtn);
+  inner.appendChild(footer);
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+}
+
+function simulateForScenario(scenarioId) {
+  const effectiveLights = getEffectiveLights(scenarioId);
+  const rw = roomW(), rd = roomD(), wPlane = workPlane();
+  let gridW = rw, gridD = rd;
+  if (state.roomPolygon.length >= 3) {
+    gridW = Math.max(rw, Math.max(...state.roomPolygon.map(p => p.x)) + 1);
+    gridD = Math.max(rd, Math.max(...state.roomPolygon.map(p => p.y)) + 1);
+  }
+  const resolution = Math.max(0.04, Math.min(gridW, gridD) / 450);
+  const { grid, cols, rows } = computeLuxGrid(gridW, gridD, resolution, effectiveLights, wPlane);
+
+  if (!state.openArea) {
+    const nBounces = parseInt(document.getElementById('reflBounces').value) || 3;
+    const indirect = computeMultiBounce(grid, cols, rows, resolution, gridW, gridD, wPlane, roomH(), nBounces);
+    if (indirect) for (let i = 0; i < grid.length; i++) grid[i] += indirect[i];
+  }
+  if (state.windows.length > 0) {
+    const wg = computeWindowsLux(state.windows, state.sunConfig, gridW, gridD, wPlane, cols, rows, resolution);
+    for (let i = 0; i < grid.length; i++) if (grid[i] >= 0) grid[i] += wg[i];
+  }
+  if (state.roomPolygon.length >= 3) {
+    for (let r = 0; r < rows; r++)
+      for (let c = 0; c < cols; c++)
+        if (!pointInPolygon((c+0.5)*resolution,(r+0.5)*resolution,state.roomPolygon)) grid[r*cols+c]=-1;
+  }
+  let maxLux=0,minLux=Infinity,sumLux=0,countLux=0;
+  for (let i=0;i<grid.length;i++){if(grid[i]<0)continue;maxLux=Math.max(maxLux,grid[i]);minLux=Math.min(minLux,grid[i]);sumLux+=grid[i];countLux++;}
+  const avgLux=countLux>0?sumLux/countLux:0;
+  const minL=minLux===Infinity?0:minLux;
+  const sMax=scaleMax();
+  const imgData=new ImageData(cols,rows);
+  for(let r=0;r<rows;r++){for(let c=0;c<cols;c++){const lux=grid[r*cols+c];const idx=(r*cols+c)*4;if(lux<0){imgData.data[idx+3]=0;continue;}const[R,G,B]=luxToColor(lux,sMax);imgData.data[idx]=R;imgData.data[idx+1]=G;imgData.data[idx+2]=B;imgData.data[idx+3]=210;}}
+  const hm={ imgData, cols, rows, rw: gridW, rd: gridD, resolution };
+  return { rawGrid: grid, heatmap: hm, maxLux, minLux: minL, avgLux };
+}
+
+document.getElementById('btn-add-scenario').addEventListener('click', addScenario);
+
+document.getElementById('btn-simulate-compare').addEventListener('click', () => {
+  const leftId  = document.getElementById('compare-left-sel').value  || null;
+  const rightId = document.getElementById('compare-right-sel').value || null;
+  state.compareLeftId  = leftId  ? parseInt(leftId)  : null;
+  state.compareRightId = rightId ? parseInt(rightId) : null;
+  const leftRes  = simulateForScenario(state.compareLeftId);
+  const rightRes = simulateForScenario(state.compareRightId);
+  state.simResults['left']  = leftRes;
+  state.simResults['right'] = rightRes;
+  state.compareMode = true;
+  document.getElementById('compare-labels').classList.add('visible');
+  document.getElementById('compare-divider').classList.add('visible');
+  document.getElementById('compare-label-left').textContent  = getScenarioName(state.compareLeftId);
+  document.getElementById('compare-label-right').textContent = getScenarioName(state.compareRightId);
+  document.getElementById('btn-exit-compare').style.display = '';
+  draw();
+});
+
+document.getElementById('btn-exit-compare').addEventListener('click', () => {
+  state.compareMode = false;
+  document.getElementById('compare-labels').classList.remove('visible');
+  document.getElementById('compare-divider').classList.remove('visible');
+  document.getElementById('btn-exit-compare').style.display = 'none';
+  draw();
+});
+
+function drawCompareSplit() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0d0d0d'; ctx.fillRect(0,0,W,H);
+
+  const leftRes  = state.simResults['left'];
+  const rightRes = state.simResults['right'];
+  if (!leftRes || !rightRes) { ctx.fillStyle='#555'; ctx.textAlign='center'; ctx.font='14px Segoe UI,sans-serif'; ctx.fillText('Run comparison first', W/2, H/2); return; }
+
+  const savedHm  = state.heatmap, savedRg = state.rawGrid;
+  const savedMax = state.maxLux,  savedMin = state.minLux, savedAvg = state.avgLux;
+
+  for (const [res, clipX, clipW] of [[leftRes,0,W/2],[rightRes,W/2,W/2]]) {
+    state.heatmap = res.heatmap; state.rawGrid = res.rawGrid; state.maxLux = res.maxLux;
+    ctx.save(); ctx.beginPath(); ctx.rect(clipX, 0, clipW, H); ctx.clip();
+    drawSceneCore(); ctx.restore();
+  }
+
+  state.heatmap = savedHm; state.rawGrid = savedRg;
+  state.maxLux = savedMax; state.minLux = savedMin; state.avgLux = savedAvg;
+
+  ctx.save();
+  ctx.strokeStyle='rgba(255,255,255,0.4)'; ctx.lineWidth=1; ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+  ctx.setLineDash([]); ctx.restore();
+}
+
+function drawSceneCore() {
+  const rw = roomW(), rd = roomD();
+  const [x0,y0] = w2c(0,0), [x1,y1] = w2c(rw,rd);
+
+  if (state.bgImage) {
+    const opacity   = (parseFloat(document.getElementById('bgOpacity').value)||30)/100;
+    const bgS       = (parseFloat(document.getElementById('bgScale').value)||100)/100;
+    const bgX       = parseFloat(document.getElementById('bgOffX').value)||0;
+    const bgY       = parseFloat(document.getElementById('bgOffY').value)||0;
+    const imgWorldW = roomW()*bgS;
+    const imgWorldH = imgWorldW*(state.bgImage.naturalHeight/state.bgImage.naturalWidth);
+    const [ibx,iby]=w2c(bgX,bgY);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0,y0,x1-x0,y1-y0); ctx.clip();
+    ctx.globalAlpha=opacity; ctx.drawImage(state.bgImage,ibx,iby,imgWorldW*state.zoom,imgWorldH*state.zoom);
+    ctx.restore();
+  }
+
+  if (state.heatmap && state.heatmap.imgData) {
+    const hm=state.heatmap;
+    const off=document.createElement('canvas'); off.width=hm.cols; off.height=hm.rows;
+    off.getContext('2d').putImageData(hm.imgData,0,0);
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    const [hx0,hy0]=w2c(0,0); const [hx1,hy1]=w2c(hm.rw,hm.rd);
+    ctx.drawImage(off,hx0,hy0,hx1-hx0,hy1-hy0);
+  }
+
+  drawTargetOverlay(); drawEmergencyOverlay();
+
+  if (state.roomPolygon.length===0&&state.mode!=='draw-room') {
+    if (!state.openArea){ctx.strokeStyle='#ccc';ctx.lineWidth=2;ctx.setLineDash([]);}
+    else{ctx.strokeStyle='#555';ctx.lineWidth=1;ctx.setLineDash([6,4]);}
+    ctx.strokeRect(x0,y0,x1-x0,y1-y0); ctx.setLineDash([]);
+  }
+
+  ctx.strokeStyle='rgba(255,255,255,0.045)'; ctx.lineWidth=0.5;
+  const gs=gridStep();
+  for(let gx=0;gx<=rw+.001;gx+=gs){const[cx]=w2c(gx,0);ctx.beginPath();ctx.moveTo(cx,y0);ctx.lineTo(cx,y1);ctx.stroke();}
+  for(let gy=0;gy<=rd+.001;gy+=gs){const[,cy]=w2c(0,gy);ctx.beginPath();ctx.moveTo(x0,cy);ctx.lineTo(x1,cy);ctx.stroke();}
+
+  ctx.fillStyle='#555';ctx.font='11px Segoe UI,sans-serif';ctx.textAlign='center';
+  ctx.fillText(rw.toFixed(1)+' m',(x0+x1)/2,y1+18);
+  ctx.save();ctx.translate(x0-20,(y0+y1)/2);ctx.rotate(-Math.PI/2);ctx.fillText(rd.toFixed(1)+' m',0,0);ctx.restore();
+
+  for (const L of state.lights) {
+    const [lx,ly]=w2c(L.x,L.y); const isSel=L.id===state.selectedLightId;
+    const tint=cctTint(L.cct); const tr=t=>Math.round(t*255);
+    const tc=`rgb(${tr(tint[0])},${tr(tint[1])},${tr(tint[2])})`;
+    if(L.shape==='linear'){
+      const len=L.length||1.2; const rad=((L.rotation||0)*Math.PI)/180;
+      const[sx,sy]=w2c(L.x-Math.cos(rad)*len/2,L.y-Math.sin(rad)*len/2);
+      const[ex,ey]=w2c(L.x+Math.cos(rad)*len/2,L.y+Math.sin(rad)*len/2);
+      ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(ex,ey);
+      ctx.strokeStyle=tc;ctx.lineWidth=isSel?5:3;ctx.lineCap='round';ctx.stroke();ctx.lineCap='butt';
+      if(isSel){ctx.beginPath();ctx.arc(lx,ly,7,0,Math.PI*2);ctx.strokeStyle='#f5a623';ctx.lineWidth=2;ctx.stroke();}
+      ctx.fillStyle=isSel?'#f5a623':'#aaa';ctx.font='10px Segoe UI,sans-serif';ctx.textAlign='left';ctx.fillText(`L${L.id}`,lx+10,ly+4);
+    } else {
+      ctx.beginPath();ctx.arc(lx,ly,isSel?9:6,0,Math.PI*2);ctx.fillStyle=tc;ctx.fill();
+      if(isSel){ctx.strokeStyle='#f5a623';ctx.lineWidth=2;ctx.stroke();}
+      ctx.fillStyle=isSel?'#f5a623':'#aaa';ctx.font='10px Segoe UI,sans-serif';ctx.textAlign='left';ctx.fillText(`L${L.id}`,lx+10,ly+4);
+    }
+    if((L.aimTilt||0)>0){
+      const azRad=((L.aimAz||0)*Math.PI)/180;const arrowLen=18+(L.aimTilt/90)*18;
+      const ax=lx+Math.cos(azRad)*arrowLen;const ay=ly+Math.sin(azRad)*arrowLen;
+      ctx.save();ctx.strokeStyle=isSel?'#f5a623':'rgba(255,255,255,0.7)';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(ax,ay);ctx.stroke();
+      const hAngle=Math.atan2(ay-ly,ax-lx);
+      ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(ax-7*Math.cos(hAngle-0.4),ay-7*Math.sin(hAngle-0.4));ctx.lineTo(ax-7*Math.cos(hAngle+0.4),ay-7*Math.sin(hAngle+0.4));ctx.closePath();
+      ctx.fillStyle=isSel?'#f5a623':'rgba(255,255,255,0.7)';ctx.fill();ctx.restore();
+    }
+  }
+
+  if (document.getElementById('showContours').checked) drawContours();
+  drawWindows();
+
+  for(const p of state.pins){
+    const[px,py]=w2c(p.x,p.y);const isSel=p.id===state.selectedPinId;
+    drawPin(ctx,px,py,p.id,p.lux,isSel);
+  }
+  drawRuler();
+
+  if(state.roomPolygon.length>0){
+    ctx.save();ctx.strokeStyle='#4af';ctx.lineWidth=2;ctx.setLineDash([]);
+    const[p0x,p0y]=w2c(state.roomPolygon[0].x,state.roomPolygon[0].y);
+    ctx.beginPath();ctx.moveTo(p0x,p0y);
+    for(let i=1;i<state.roomPolygon.length;i++){const[vx,vy]=w2c(state.roomPolygon[i].x,state.roomPolygon[i].y);ctx.lineTo(vx,vy);}
+    if(state.mode!=='draw-room')ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle='#4af';
+    for(const v of state.roomPolygon){const[vx,vy]=w2c(v.x,v.y);ctx.beginPath();ctx.arc(vx,vy,4,0,Math.PI*2);ctx.fill();}
+    ctx.restore();
+  }
+
+  for(const w of state.wallSegments){
+    const[wx1,wy1]=w2c(w.x1,w.y1);const[wx2,wy2]=w2c(w.x2,w.y2);const isSel=w.id===state.selectedWallId;
+    ctx.save();ctx.strokeStyle=isSel?'#ff0':'#f84';ctx.lineWidth=isSel?4:3;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(wx1,wy1);ctx.lineTo(wx2,wy2);ctx.stroke();ctx.lineCap='butt';
+    if(isSel)drawMeasureLabel(ctx,wx1,wy1,wx2,wy2,w.x1,w.y1,w.x2,w.y2);
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WINDOWS & DAYLIGHT
+// ═══════════════════════════════════════════════════════════════
+
+function addWindow() {
+  recordHistory();
+  const rw = roomW(), rd = roomD();
+  const wall = document.getElementById('win-wall').value;
+  const win = {
+    id:           state.nextWindowId++,
+    wall,
+    position:     parseFloat(document.getElementById('win-pos').value)     || 1,
+    width:        parseFloat(document.getElementById('win-width').value)   || 1.5,
+    height:       parseFloat(document.getElementById('win-height').value)  || 1.2,
+    sillHeight:   parseFloat(document.getElementById('win-sill').value)    || 0.9,
+    transmittance:parseFloat(document.getElementById('win-transmit').value)|| 0.7,
+  };
+  // Store edge geometry so polygon rooms work
+  const eg = getWinEdgeGeometry(win, rw, rd);
+  win.edgeX1 = eg.x1; win.edgeY1 = eg.y1; win.edgeX2 = eg.x2; win.edgeY2 = eg.y2;
+  win.inwardNx = eg.inx; win.inwardNy = eg.iny;
+  state.windows.push(win);
+  state.selectedWindowId = win.id;
+  invalidateSim(); refreshWindowList(); draw(); scheduleAutoSave();
+}
+
+function removeWindow(id) {
+  recordHistory();
+  state.windows = state.windows.filter(w => w.id !== id);
+  if (state.selectedWindowId === id) state.selectedWindowId = null;
+  invalidateSim(); refreshWindowList(); draw(); scheduleAutoSave();
+}
+
+function selectWindow(id) {
+  state.selectedWindowId = id;
+  const win = state.windows.find(w => w.id === id);
+  if (win) {
+    document.getElementById('win-wall').value     = win.wall;
+    document.getElementById('win-pos').value      = win.position;
+    document.getElementById('win-width').value    = win.width;
+    document.getElementById('win-height').value   = win.height;
+    document.getElementById('win-sill').value     = win.sillHeight;
+    document.getElementById('win-transmit').value = win.transmittance;
+  }
+  refreshWindowList(); draw();
+}
+
+function refreshWindowList() {
+  const ul = document.getElementById('window-list');
+  ul.innerHTML = '';
+  for (const w of state.windows) {
+    const li = document.createElement('li');
+    li.className = 'win-item' + (w.id === state.selectedWindowId ? ' selected' : '');
+    li.innerHTML = `<span class="info">W${w.id} — ${w.wall} wall, ${w.width}m wide @${w.sillHeight}m sill</span>
+      <button class="rm" title="Remove">✕</button>`;
+    li.addEventListener('click', e => {
+      if (e.target.classList.contains('rm')) { removeWindow(w.id); return; }
+      selectWindow(w.id);
+    });
+    ul.appendChild(li);
+  }
+  updateSunInfo();
+}
+
+// ── Wall-snap for place-window mode ──────────────────────────
+
+function getAllWallEdges() {
+  const rw = roomW(), rd = roomD();
+  const edges = [];
+
+  if (state.roomPolygon.length >= 3) {
+    // Polygon walls
+    const poly = state.roomPolygon;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      edges.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, wallId: `poly_${i}` });
+    }
+  } else {
+    // Rectangle edges
+    edges.push({ x1: 0,  y1: 0,  x2: rw, y2: 0,  wallId: 'N' });
+    edges.push({ x1: rw, y1: 0,  x2: rw, y2: rd, wallId: 'E' });
+    edges.push({ x1: 0,  y1: rd, x2: rw, y2: rd, wallId: 'S' });
+    edges.push({ x1: 0,  y1: 0,  x2: 0,  y2: rd, wallId: 'W' });
+  }
+  return edges;
+}
+
+function snapToWall(wx, wy) {
+  const edges = getAllWallEdges();
+  const rw = roomW(), rd = roomD();
+  // Room interior reference point — used to ensure the inward normal always
+  // points toward the inside of the room regardless of edge traversal direction.
+  let cx = rw / 2, cy = rd / 2;
+  if (state.roomPolygon.length >= 3) {
+    cx = state.roomPolygon.reduce((s, p) => s + p.x, 0) / state.roomPolygon.length;
+    cy = state.roomPolygon.reduce((s, p) => s + p.y, 0) / state.roomPolygon.length;
+  }
+
+  let bestDist = Infinity, bestSnap = null;
+
+  for (const e of edges) {
+    const dx = e.x2 - e.x1, dy = e.y2 - e.y1;
+    const len2 = dx*dx + dy*dy;
+    if (len2 < 1e-10) continue;
+    const t = Math.max(0, Math.min(1, ((wx - e.x1)*dx + (wy - e.y1)*dy) / len2));
+    const sx = e.x1 + t*dx, sy = e.y1 + t*dy;
+    const dist = Math.hypot(wx - sx, wy - sy);
+    if (dist < bestDist) {
+      bestDist = dist;
+      let nx = -dy / Math.sqrt(len2), ny = dx / Math.sqrt(len2);
+      // Flip if the candidate normal points away from the room interior.
+      if (nx * (cx - sx) + ny * (cy - sy) < 0) { nx = -nx; ny = -ny; }
+      const angle = Math.atan2(dy, dx);
+      bestSnap = { x: sx, y: sy, t, edge: e, inwardNx: nx, inwardNy: ny, angle, dist };
+    }
+  }
+  return bestSnap;
+}
+
+function getWallIdForEdge(edge) {
+  if (edge.wallId === 'N') return 'N';
+  if (edge.wallId === 'E') return 'E';
+  if (edge.wallId === 'S') return 'S';
+  if (edge.wallId === 'W') return 'W';
+  return edge.wallId; // polygon wall identifier
+}
+
+// Window spec fields sync to selected window
+['win-wall','win-pos','win-width','win-height','win-sill','win-transmit'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    const win = state.windows.find(w => w.id === state.selectedWindowId);
+    if (!win) return;
+    recordHistory();
+    win.wall          = document.getElementById('win-wall').value;
+    win.position      = parseFloat(document.getElementById('win-pos').value)     || 1;
+    win.width         = parseFloat(document.getElementById('win-width').value)   || 1.5;
+    win.height        = parseFloat(document.getElementById('win-height').value)  || 1.2;
+    win.sillHeight    = parseFloat(document.getElementById('win-sill').value)    || 0.9;
+    win.transmittance = parseFloat(document.getElementById('win-transmit').value)|| 0.7;
+    invalidateSim(); refreshWindowList(); draw(); scheduleAutoSave();
+  });
+});
+
+document.getElementById('btn-add-window').addEventListener('click', addWindow);
+document.getElementById('btn-place-window-mode').addEventListener('click', () => setMode('place-window'));
+document.getElementById('tool-place-window').addEventListener('click', () => setMode('place-window'));
+
+// Sun config fields
+['sun-date','sun-time','sun-north','sun-lat','sun-lon'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    state.sunConfig.date       = document.getElementById('sun-date').value;
+    state.sunConfig.time       = parseFloat(document.getElementById('sun-time').value)  || 12;
+    state.sunConfig.northAngle = parseFloat(document.getElementById('sun-north').value) || 0;
+    state.sunConfig.lat        = parseFloat(document.getElementById('sun-lat').value)   || 51.5;
+    state.sunConfig.lon        = parseFloat(document.getElementById('sun-lon').value)   || -0.1;
+    if (state.windows.length > 0) invalidateSim();
+    updateSunInfo(); scheduleAutoSave();
+  });
+});
+
+function getDayOfYear(dateStr) {
+  const d = new Date(dateStr);
+  const start = new Date(d.getFullYear(), 0, 0);
+  return Math.floor((d - start) / 86400000);
+}
+
+function calcSunPosition(lat, lon, dateStr, solarHour) {
+  const doy = getDayOfYear(dateStr);
+  const latR = lat * Math.PI / 180;
+  const B = (360 / 365 * (doy - 81)) * Math.PI / 180;
+  const declR = Math.asin(Math.sin(23.45 * Math.PI / 180) * Math.sin(B));
+  const hourAngle = (solarHour - 12) * 15 * Math.PI / 180;
+  const sinAlt = Math.sin(latR)*Math.sin(declR) + Math.cos(latR)*Math.cos(declR)*Math.cos(hourAngle);
+  const altitude = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+  const cosAz = (Math.sin(declR) - Math.sin(altitude)*Math.sin(latR)) / (Math.cos(altitude)*Math.cos(latR) + 1e-10);
+  let azimuth = Math.acos(Math.max(-1, Math.min(1, cosAz)));
+  if (hourAngle > 0) azimuth = 2*Math.PI - azimuth;
+  return { altitude, azimuth };
+}
+
+function updateSunInfo() {
+  const el = document.getElementById('sun-info');
+  if (!el) return;
+  const { altitude, azimuth } = calcSunPosition(
+    state.sunConfig.lat, state.sunConfig.lon, state.sunConfig.date, state.sunConfig.time);
+  const altDeg = (altitude * 180 / Math.PI).toFixed(1);
+  const azDeg  = ((azimuth * 180 / Math.PI + 360) % 360).toFixed(1);
+  const dirs   = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  const dir    = dirs[Math.round(parseFloat(azDeg)/22.5) % 16];
+  el.textContent = altitude > 0
+    ? `☀ ${altDeg}° alt, ${azDeg}° (${dir}) az`
+    : `☾ Sun below horizon (${altDeg}°)`;
+}
+
+function getWinEdgeGeometry(win, rw, rd) {
+  if (win.edgeX1 !== undefined) {
+    return {
+      x1: win.edgeX1, y1: win.edgeY1, x2: win.edgeX2, y2: win.edgeY2,
+      inx: win.inwardNx, iny: win.inwardNy,
+    };
+  }
+  switch(win.wall) {
+    case 'N': return { x1:0,  y1:0,  x2:rw, y2:0,  inx:0,  iny:1  };
+    case 'S': return { x1:0,  y1:rd, x2:rw, y2:rd, inx:0,  iny:-1 };
+    case 'E': return { x1:rw, y1:0,  x2:rw, y2:rd, inx:-1, iny:0  };
+    case 'W': return { x1:0,  y1:0,  x2:0,  y2:rd, inx:1,  iny:0  };
+  }
+}
+
+function computeWindowsLux(windows, sunCfg, rw, rd, wPlane, cols, rows, resolution) {
+  const grid = new Float32Array(cols * rows);
+  const { altitude, azimuth } = calcSunPosition(sunCfg.lat, sunCfg.lon, sunCfg.date, sunCfg.time);
+  const na = sunCfg.northAngle * Math.PI / 180;
+
+  // Sun direction in room coordinates (downward ray, i.e. direction sunlight travels)
+  // World frame: E=East, N=North. Sun direction toward earth: (sinAz*cosAlt, cosAz*cosAlt, -sinAlt)
+  // Room frame vs world frame (northAngle = angle of room-top from North, CW):
+  //   roomX_in_world = (cos(na), -sin(na)) in (E,N)
+  //   roomY_in_world = (-sin(na), -cos(na)) in (E,N)
+  // Inverse: world(E,N) -> room(x,y):
+  //   room_x = cos(na)*E - sin(na)*N
+  //   room_y = -sin(na)*E - cos(na)*N
+  const sunWorldE = Math.sin(azimuth) * Math.cos(altitude);
+  const sunWorldN = Math.cos(azimuth) * Math.cos(altitude);
+  const sunRoomX  =  Math.cos(na) * sunWorldE - Math.sin(na) * sunWorldN; // +x component of sun ray
+  const sunRoomY  = -Math.sin(na) * sunWorldE - Math.cos(na) * sunWorldN; // +y component
+  const sunRoomZ  = -Math.sin(altitude); // downward (negative z = toward floor)
+
+  for (const win of windows) {
+    const { x1: ex1, y1: ey1, x2: ex2, y2: ey2, inx, iny } = getWinEdgeGeometry(win, rw, rd);
+    const edgeDx = ex2 - ex1, edgeDy = ey2 - ey1;
+    const edgeLen = Math.hypot(edgeDx, edgeDy);
+    if (edgeLen < 1e-6) continue;
+    const tx = edgeDx / edgeLen, ty = edgeDy / edgeLen; // unit vector along wall
+
+    // Outward wall normal
+    const outNx = -inx, outNy = -iny;
+    const wallD = outNx * ex1 + outNy * ey1; // signed distance from origin to wall plane
+
+    // ── DIRECT SUN: parallel ray tracing (creates a moving patch) ──────────
+    if (altitude > 0) {
+      const denom = outNx * sunRoomX + outNy * sunRoomY;
+      if (denom < -1e-10) {
+        // 8000 lx base: physically DNI would be ~90 000 lx, but interior
+        // sims use a design-equivalent scale that keeps sun vs. artificial
+        // lights in a useful visual ratio (~5–10×).
+        const E_patch = 8000 * Math.sin(altitude) * win.transmittance;
+        // Soft-edge blend widths (metres) so the patch fades at boundaries
+        // rather than cutting off sharply.
+        const softenW = 0.25;
+        const softenZ = 0.20;
+
+        for (let r = 0; r < rows; r++) {
+          const fpy = (r + 0.5) * resolution;
+          for (let c = 0; c < cols; c++) {
+            const fpx = (c + 0.5) * resolution;
+            const t = (outNx * fpx + outNy * fpy - wallD) / denom;
+            if (t <= 0) continue;
+
+            const hitX = fpx - t * sunRoomX;
+            const hitY = fpy - t * sunRoomY;
+            const hitZ = wPlane - t * sunRoomZ;
+
+            const along = (hitX - ex1) * tx + (hitY - ey1) * ty;
+            // Signed distance from each of the 4 window edges, normalised to
+            // [0,1] over the blend width — gives smooth penumbra at all edges.
+            const fW1 = Math.min(1, Math.max(0, (along - win.position)                     / softenW));
+            const fW2 = Math.min(1, Math.max(0, (win.position + win.width  - along)        / softenW));
+            const fZ1 = Math.min(1, Math.max(0, (hitZ - win.sillHeight)                    / softenZ));
+            const fZ2 = Math.min(1, Math.max(0, (win.sillHeight + win.height - hitZ)       / softenZ));
+            const coverage = fW1 * fW2 * fZ1 * fZ2;
+            if (coverage <= 0) continue;
+
+            grid[r * cols + c] += E_patch * coverage;
+          }
+        }
+      }
+    }
+
+    // ── DIFFUSE SKY: Lambertian area source from window face ─────────────────
+    // Daytime sky: ~2000 lx (design scale, ~25 % of peak direct sun).
+    // Twilight: 500 lx.  This seeds the multi-bounce radiosity pass in simulate().
+    const E_sky = (altitude > 0 ? 2000 : altitude > -0.1 ? 500 : 0) * win.transmittance;
+    if (E_sky > 0) {
+      const L_win = E_sky / Math.PI;
+      const nW = Math.max(2, Math.ceil(win.width  / 0.6));
+      const nH = Math.max(2, Math.ceil(win.height / 0.6));
+      const dA = (win.width * win.height) / (nW * nH);
+      const samples = [];
+      for (let ih = 0; ih < nH; ih++) {
+        const sz = win.sillHeight + (ih + 0.5) * win.height / nH;
+        for (let iw = 0; iw < nW; iw++) {
+          const sPos = win.position + (iw + 0.5) * win.width / nW;
+          samples.push({ x: ex1 + sPos * tx, y: ey1 + sPos * ty, z: sz });
+        }
+      }
+      for (let r = 0; r < rows; r++) {
+        const py = (r + 0.5) * resolution;
+        for (let c = 0; c < cols; c++) {
+          const px = (c + 0.5) * resolution;
+          let E = 0;
+          for (const s of samples) {
+            const dx = px - s.x, dy = py - s.y, dz = wPlane - s.z;
+            const r2 = dx*dx + dy*dy + dz*dz;
+            if (r2 < 1e-6) continue;
+            const r1 = Math.sqrt(r2);
+            const cosFloor = -dz / r1;   // window is above work plane, dz<0
+            const cosWin   = (dx * inx + dy * iny) / r1;
+            if (cosFloor <= 0 || cosWin <= 0) continue;
+            E += L_win * cosFloor * cosWin / r2 * dA;
+          }
+          grid[r * cols + c] += Math.max(0, E);
+        }
+      }
+    }
+
+  }
+  return grid;
+}
+
+function placeWindowAtSnap(snap) {
+  if (!snap) return;
+  recordHistory();
+  const halfW = (parseFloat(document.getElementById('win-width').value) || 1.5) / 2;
+  const edgeDx = snap.edge.x2 - snap.edge.x1;
+  const edgeDy = snap.edge.y2 - snap.edge.y1;
+  const edgeLen = Math.hypot(edgeDx, edgeDy);
+  const posAlongEdge = snap.t * edgeLen - halfW; // position of window start from edge start
+
+  const win = {
+    id:           state.nextWindowId++,
+    wall:         getWallIdForEdge(snap.edge),
+    position:     Math.max(0, posAlongEdge),
+    width:        parseFloat(document.getElementById('win-width').value)   || 1.5,
+    height:       parseFloat(document.getElementById('win-height').value)  || 1.2,
+    sillHeight:   parseFloat(document.getElementById('win-sill').value)    || 0.9,
+    transmittance:parseFloat(document.getElementById('win-transmit').value)|| 0.7,
+    // Store raw edge info for polygon walls so computeWindowsLux can use it
+    edgeX1: snap.edge.x1, edgeY1: snap.edge.y1,
+    edgeX2: snap.edge.x2, edgeY2: snap.edge.y2,
+    inwardNx: snap.inwardNx, inwardNy: snap.inwardNy,
+  };
+  // Update sidebar fields to match
+  document.getElementById('win-wall').value     = win.wall;
+  document.getElementById('win-pos').value      = win.position.toFixed(2);
+  state.windows.push(win);
+  state.selectedWindowId = win.id;
+  invalidateSim(); refreshWindowList(); draw(); scheduleAutoSave();
+}
+
+function drawWindows() {
+  if (!state.windows.length && !state.windowSnap) return;
+  const rw = roomW(), rd = roomD();
+  ctx.save();
+
+  for (const win of state.windows) {
+    const isSel = win.id === state.selectedWindowId;
+    const { x1: ex1, y1: ey1, x2: ex2, y2: ey2 } = getWinEdgeGeometry(win, rw, rd);
+    const edgeDx = ex2 - ex1, edgeDy = ey2 - ey1;
+    const edgeLen = Math.hypot(edgeDx, edgeDy);
+    if (edgeLen < 1e-6) continue;
+    const tx = edgeDx / edgeLen, ty = edgeDy / edgeLen;
+    const wx1 = ex1 + win.position * tx,        wy1 = ey1 + win.position * ty;
+    const wx2 = ex1 + (win.position + win.width) * tx, wy2 = ey1 + (win.position + win.width) * ty;
+    const [cx1, cy1] = w2c(wx1, wy1), [cx2, cy2] = w2c(wx2, wy2);
+    ctx.strokeStyle = isSel ? '#4ff' : '#4af';
+    ctx.lineWidth   = isSel ? 5 : 3;
+    ctx.lineCap     = 'round';
+    ctx.beginPath(); ctx.moveTo(cx1, cy1); ctx.lineTo(cx2, cy2); ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.fillStyle = isSel ? '#4ff' : '#4af';
+    ctx.font = '10px Segoe UI,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(`W${win.id}`, (cx1 + cx2) / 2, (cy1 + cy2) / 2 - 6);
+  }
+
+  // Place-window snap preview
+  if (state.mode === 'place-window' && state.windowSnap) {
+    const snap = state.windowSnap;
+    const halfW = (parseFloat(document.getElementById('win-width').value) || 1.5) / 2;
+    const { x1: ex1, y1: ey1, x2: ex2, y2: ey2 } = snap.edge;
+    const edgeDx = ex2 - ex1, edgeDy = ey2 - ey1;
+    const edgeLen = Math.hypot(edgeDx, edgeDy);
+    const tx = edgeDx / edgeLen, ty = edgeDy / edgeLen;
+    const posStart = snap.t * edgeLen - halfW;
+    const wx1 = ex1 + posStart * tx,             wy1 = ey1 + posStart * ty;
+    const wx2 = ex1 + (posStart + halfW * 2) * tx, wy2 = ey1 + (posStart + halfW * 2) * ty;
+    const [px1, py1] = w2c(wx1, wy1), [px2, py2] = w2c(wx2, wy2);
+    ctx.strokeStyle = 'rgba(68,255,255,0.6)';
+    ctx.lineWidth   = 4;
+    ctx.lineCap     = 'round';
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath(); ctx.moveTo(px1, py1); ctx.lineTo(px2, py2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'butt';
+  }
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LEAFLET MAP
+// ═══════════════════════════════════════════════════════════════
+
+let _leafletMap = null, _leafletMarker = null;
+
+document.getElementById('btn-pick-location').addEventListener('click', openMapModal);
+document.getElementById('btn-close-map').addEventListener('click', closeMapModal);
+
+function openMapModal() {
+  document.getElementById('map-modal').classList.add('open');
+  if (!_leafletMap) {
+    initLeafletMap();
+  } else {
+    _leafletMap.invalidateSize();
+    const lat = parseFloat(document.getElementById('sun-lat').value) || 51.5;
+    const lon = parseFloat(document.getElementById('sun-lon').value) || -0.1;
+    _leafletMap.setView([lat, lon], _leafletMap.getZoom());
+  }
+}
+
+function closeMapModal() {
+  document.getElementById('map-modal').classList.remove('open');
+}
+
+function initLeafletMap() {
+  const lat = parseFloat(document.getElementById('sun-lat').value) || 51.5;
+  const lon = parseFloat(document.getElementById('sun-lon').value) || -0.1;
+  _leafletMap = L.map('leaflet-map').setView([lat, lon], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 18,
+  }).addTo(_leafletMap);
+  _leafletMarker = L.marker([lat, lon]).addTo(_leafletMap);
+  _leafletMap.on('click', e => {
+    const { lat, lng } = e.latlng;
+    _leafletMarker.setLatLng([lat, lng]);
+    document.getElementById('sun-lat').value = lat.toFixed(4);
+    document.getElementById('sun-lon').value = lng.toFixed(4);
+    document.getElementById('map-coords').textContent = `${lat.toFixed(4)}°, ${lng.toFixed(4)}°`;
+    state.sunConfig.lat = lat;
+    state.sunConfig.lon = lng;
+    updateSunInfo();
+    if (state.windows.length > 0) invalidateSim();
+    scheduleAutoSave();
+  });
+  document.getElementById('map-coords').textContent = `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+
+// Sync sun-date input default to today
+document.getElementById('sun-date').value = state.sunConfig.date;
+
+// Load auto-saved project (if any), then push initial history entry
+loadAutoSave();
+updateUndoButtons();
+refreshScenarioList();
+refreshWindowList();
+updateSunInfo();
 </script>
 </body>
 </html>
